@@ -11,8 +11,8 @@
 import json
 import datetime
 
-# -- 调用 tools/reminder.py 的 add_reminder()
-from tools.reminder import add_reminder
+# -- 调用 release/reminder.py 的 add_reminder()（旧版路径）
+from reminder import add_reminder
 
 #=============================================================
 #.       add_local_reminder() — 用 Gemini 解析消息并添加提醒

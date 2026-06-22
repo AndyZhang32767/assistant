@@ -154,8 +154,8 @@ def _try_parse_variable(lines: list[str], start: int) -> Var | None:
     name = m.group(2)
     value = m.group(3).rstrip()
 
-    # 情况 A：多行字符串（""" 独占一行，或 """...开头但本行未闭合）
-    if value.strip().startswith('"""') and (value.strip() == '"""' or not value.strip().endswith('"""')):
+    # 情况 A：多行字符串 — 本行有内容但未闭合（如 NAME = """content...）
+    if value.strip().startswith('"""') and not value.strip().endswith('"""'):
         is_multiline = True
         full_value = value + "\n"
         end = start + 1
@@ -176,14 +176,28 @@ def _try_parse_variable(lines: list[str], start: int) -> Var | None:
         return Var(name=name, value=value, line_start=start + 1, line_end=end,
                    is_multiline=True, indent=indent)
 
-    # 情况 B：三引号字符串在同一行闭合
+    # 情况 A2：多行字符串 — """ 单独一行，内容从下一行开始（如 NAME = """）
+    if value.strip() == '"""':
+        full_value = ""
+        end = start + 1
+        while end < len(lines):
+            if '"""' in lines[end]:
+                break
+            full_value += lines[end]
+            end += 1
+        value = full_value.rstrip()
+        end += 1
+        return Var(name=name, value=value, line_start=start + 1, line_end=end,
+                   is_multiline=True, indent=indent)
+
+    # 情况 B：三引号字符串在同一行闭合（如 NAME = """one liner"""）
     if value.strip().startswith('"""') and '"""' in value[3:]:
         raw = value.strip()
         raw = raw[3:]
         idx = raw.rfind('"""')
         if idx >= 0:
             raw = raw[:idx]
-        return Var(name=name, value=raw.strip(), line_start=start + 1, line_end=start + 2,
+        return Var(name=name, value=raw.strip(), line_start=start + 1, line_end=start + 1,
                    is_multiline=True, indent=indent)
 
     # 情况 C：简单值 — 去掉尾部注释和首尾引号
@@ -203,7 +217,7 @@ def _try_parse_variable(lines: list[str], start: int) -> Var | None:
         if not (value_clean.strip().startswith('"') or value_clean.strip().startswith("'")):
             value_clean = value_clean.split("#", 1)[0].strip()
 
-    return Var(name=name, value=value_clean, line_start=start + 1, line_end=start + 2,
+    return Var(name=name, value=value_clean, line_start=start + 1, line_end=start + 1,
                is_multiline=False, indent=indent)
 
 
@@ -245,8 +259,14 @@ def write_config(filepath: str, sections: list[Section]) -> None:
                 var = var_map[name]
                 indent = m.group(1)
                 if var.is_multiline:
-                    # 多行字符串：写入 NAME = """value"""
-                    result.append(f'{indent}{name} = """{var.value}"""\n')
+                    # 多行字符串：保留多行格式，包含换行时展开
+                    if '\n' in var.value:
+                        result.append(f'{indent}{name} = """\n')
+                        for content_line in var.value.split('\n'):
+                            result.append(f'{content_line}\n')
+                        result.append(f'"""\n')
+                    else:
+                        result.append(f'{indent}{name} = """{var.value}"""\n')
                     # 跳过原文件中的多行内容（直到包含 """ 的行）
                     i_line += 1
                     while i_line < len(lines) and '"""' not in lines[i_line]:
@@ -259,7 +279,7 @@ def write_config(filepath: str, sections: list[Section]) -> None:
                     val = var.value.strip()
                     expr_vars = {"SESSION_FILE"}   # 表达式变量，不加引号
                     str_vars = {"TELEGRAM_TOKEN", "GEMINI_API_KEY", "MODEL_TYPE",
-                                "CUSTOM_SEARCH_API", "PROXY_URL", "SCHEDULE_FILE"}
+                                "CUSTOM_SEARCH_API", "PROXY_URL", "BOT_NAME"}
 
                     if name in expr_vars or ("(" in val and ")" in val):
                         result.append(f'{indent}{name} = {val}\n')

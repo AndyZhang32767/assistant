@@ -144,10 +144,12 @@ class BotTUI(App):
     BINDINGS = [
         ("q", "quit", "Quit"),
         ("c", "section(0)", "Config"),
-        ("s", "save_config", "Save"),
+        ("s", "show_schedule", "Schedule"),
         ("r", "restart", "Restart"),
         ("h", "show_history", "History"),
-        ("ctrl+l", "view_log", "查看日志"),
+        ("t", "tools", "Tools"),
+        ("ctrl+s", "save_config", "Save"),
+        ("p", "show_status", "Status"),
     ]
 
     def __init__(self):
@@ -180,18 +182,20 @@ class BotTUI(App):
                 # 动态生成底部按钮：每个配置区块一个按钮 + 功能按钮
                 for i, section in enumerate(self._sections):
                     title = section.title
-                    # 去掉 #. 注释前缀和多余空白
-                    title = title.lstrip(". ") if title.startswith(".") else title
+                    if title.startswith("."):
+                        title = title.lstrip(". ")
                     title = title.replace("core/config.py — ", "")
-                    # 截断过长的标题（取第一个 — 之前或前 12 字）
                     if " — " in title:
                         title = title.split(" — ")[0]
                     if len(title) > 12:
                         title = title[:12]
-                    yield Button(title, id=f"sect-{i}")
+                    yield Button("c.Config", id=f"sect-{i}")
+                yield Button("t.Tools", id="sect-tools")
+                yield Button("s.Schedule", id="sect-schedule")
                 yield Button("h.History", id="sect-hist")
-                yield Button("s.Save", id="sect-save")
+                yield Button("p.Status", id="sect-status")
                 yield Button("r.Restart", id="sect-restart")
+                yield Button("Ctrl+S Save", id="sect-save")
                 yield Button("q.Quit", id="sect-quit")
 
     #===================================================================================
@@ -248,6 +252,13 @@ class BotTUI(App):
                 self.run_worker(self._restart_bot(), exclusive=True)
             elif tag == "hist":
                 self.push_screen(HistoryList())
+            elif tag == "tools":
+                from tui.widgets.tools_modal import ToolsModal
+                self.push_screen(ToolsModal())
+            elif tag == "schedule":
+                self.action_show_schedule()
+            elif tag == "status":
+                self.action_show_status()
             elif tag == "quit":
                 self.exit()
 
@@ -272,6 +283,21 @@ class BotTUI(App):
     def action_show_history(self) -> None:
         #.       快捷键 h：打开会话历史弹窗。
         self.push_screen(HistoryList())
+
+    def action_tools(self) -> None:
+        #.       快捷键 t：打开 Tools 参数管理。
+        from tui.widgets.tools_modal import ToolsModal
+        self.push_screen(ToolsModal())
+
+    def action_show_schedule(self) -> None:
+        #.       快捷键 s：查看定时唤起计划。
+        from tui.widgets.schedule_modal import ScheduleModal
+        self.push_screen(ScheduleModal())
+
+    def action_show_status(self) -> None:
+        #.       快捷键 p：查看系统资源占用。
+        from tui.widgets.status_modal import StatusModal
+        self.push_screen(StatusModal())
 
     def action_view_log(self) -> None:
         #.       快捷键 Ctrl+L：打开可选中/复制的日志弹窗。

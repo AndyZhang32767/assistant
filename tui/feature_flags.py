@@ -18,6 +18,7 @@
 
 import json
 import os
+from utils.tool_scanner import scan_tools
 
 #=============================================================
 #.       FLAGS_PATH — 功能开关持久化文件路径
@@ -28,20 +29,18 @@ FLAGS_PATH = os.path.join(
 )
 
 #=============================================================
-#.       DEFAULTS — 所有开关的默认值（新增 flag 自动补上默认值）
+#.       DEFAULTS — 从 tools/ 自动扫描 + 固定项
 #=============================================================
-DEFAULTS = {
-    "get_current_system_time":  True,
-    "fetch_school_schedule":    True,
-    "web_search":               True,
-    "add_local_reminder":       True,
-    "remove_local_reminder":    True,
-    "update_reminder_priority": True,
-    "group_reminder":           True,
-    "file_attachment":          True,
-    "office_to_pdf":            True,
-    "morning_push":             True,
-}
+def _build_defaults():
+    d = {}
+    for t in scan_tools():
+        for key, _label in t.switches:
+            d[key] = True
+    d["morning_push"] = True
+    return d
+
+
+DEFAULTS = _build_defaults()
 
 
 #=============================================================

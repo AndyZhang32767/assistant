@@ -1,0 +1,150 @@
+#=======================================================================================
+#.       tui/widgets/status_modal.py — 系统资源占用状态界面
+#.
+#.       实时显示 CPU 占用率、内存使用量、功耗。
+#.       每 1 秒自动刷新，Esc 关闭。
+#=======================================================================================
+
+from textual.app import ComposeResult
+from textual.containers import VerticalScroll, Horizontal
+from textual.screen import ModalScreen
+from textual.widgets import Static, Button
+
+from utils.system_stats import get_cpu_percent, get_memory_mb, get_power_breakdown
+
+
+class StatusModal(ModalScreen):
+    BINDINGS = [
+        ("escape", "dismiss", "Close"),
+    ]
+
+    CSS = """
+    StatusModal {
+        align: center middle;
+    }
+    #status-dialog {
+        width: 56;
+        height: auto;
+        max-height: 50%;
+        border: thick $primary;
+        background: $surface;
+        padding: 1 2;
+    }
+    #status-title {
+        text-align: center;
+        padding: 1;
+        background: $primary;
+        color: $text;
+        text-style: bold;
+    }
+    #status-body {
+        height: auto;
+        margin: 1 0;
+        padding: 0 2;
+    }
+    #status-close {
+        dock: bottom;
+        height: 3;
+        align: right middle;
+    }
+    """
+
+    def __init__(self):
+        super().__init__()
+        self._timer = None
+
+    def compose(self) -> ComposeResult:
+        with VerticalScroll(id="status-dialog"):
+            yield Static("📊 系统资源占用", id="status-title")
+            yield Static(self._build_stats(), id="status-body")
+            with Horizontal(id="status-close"):
+                yield Button("Close (Esc)", id="status-close-btn")
+
+    def on_mount(self) -> None:
+        #.       初始化 psutil CPU 计数器（首次调用返回 0.0）。
+        get_cpu_percent()
+        #.       每 1s 刷新一次。
+        self._timer = self.set_interval(1.0, self._refresh)
+
+    def on_unmount(self) -> None:
+        if self._timer:
+            self._timer.stop()
+
+    #=============================================================
+    #.       构建状态文本
+    #=============================================================
+    def _build_stats(self) -> str:
+        B = 16  # bar width
+        lines = []
+
+        # -- CPU --
+        cpu = get_cpu_percent()
+        lines.append(f"  CPU {cpu:>5.1f}%")
+        lines.append(f"  {self._bar(cpu / 100.0, B)}")
+
+        # -- Memory --
+        used_mb, total_mb = get_memory_mb()
+        if total_mb > 0:
+            used_gb = used_mb / 1024
+            total_gb = total_mb / 1024
+            mem_pct = (used_mb / total_mb) * 100
+            lines.append(f"  MEM {used_gb:.1f}/{total_gb:.1f}GB")
+            lines.append(f"  {self._bar(mem_pct / 100.0, B)}")
+        else:
+            lines.append("  MEM N/A")
+
+        # -- Power --
+        pwr = get_power_breakdown()
+        cpu_w = pwr.get("cpu", 0.0)
+        gpu_w = pwr.get("gpu", 0.0)
+        ane_w = pwr.get("ane", 0.0)
+        package_w = pwr.get("package", 0.0)
+
+        from utils.power_monitor import get_power_monitor
+        pm = get_power_monitor()
+
+        if pm.is_running:
+            pwr_pct = min(package_w / 30.0, 1.0)
+            lines.append(f"  CPU {cpu_w:.2f}W")
+            lines.append(f"  GPU {gpu_w:.2f}W")
+            lines.append(f"  ANE {ane_w:.2f}W")
+            lines.append(f"  Package {package_w:.3f}W")
+            lines.append(f"  {self._bar(pwr_pct, B)}")
+        elif package_w > 0:
+            pwr_pct = min(package_w / 30.0, 1.0)
+            lines.append(f"  Sys {package_w:.1f}W")
+            lines.append(f"  {self._bar(pwr_pct, B)}")
+            lines.append("  [dim](awaiting powermetrics...)[/dim]")
+        else:
+            lines.append("  Power: N/A")
+
+        return "\n".join(lines)
+
+    #=============================================================
+    #.       进度条绘制（纯文本 Unicode block + Rich 显式标签）
+    #=============================================================
+    @staticmethod
+    def _bar(ratio: float, width: int = 20) -> str:
+        ratio = max(0.0, min(1.0, ratio))
+        filled = int(round(ratio * width))
+        empty = width - filled
+        bar = "█" * filled + "░" * empty
+        if ratio < 0.5:
+            return f"[green]{bar}[/green]"
+        elif ratio < 0.8:
+            return f"[yellow]{bar}[/yellow]"
+        else:
+            return f"[red]{bar}[/red]"
+
+    #=============================================================
+    #.       定时刷新
+    #=============================================================
+    def _refresh(self) -> None:
+        body = self.query_one("#status-body")
+        body.update(self._build_stats())
+
+    #=============================================================
+    #.       关闭按钮
+    #=============================================================
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        self.dismiss()

@@ -17,25 +17,22 @@ from textual.widgets import Static, Switch
 
 # -- 从 tui/feature_flags.py 获取开关加载/保存函数
 from tui.feature_flags import load_flags, save_flags
+from utils.tool_scanner import scan_tools
+
 
 #=============================================================
-#.       ITEMS — 开关定义列表
-#.       每项为 (key, 中文标签)，key 对应 feature_flags.json 中的 key
+#.       ITEMS — 从 tools/ 目录自动扫描 + 固定项
 #=============================================================
-ITEMS = [
-    # Skills (Gemini Tools)
-    ("get_current_system_time",  "当前时间"),
-    ("fetch_school_schedule",    "课表查询"),
-    ("web_search",               "网页搜索"),
-    ("add_local_reminder",       "添加提醒"),
-    ("remove_local_reminder",    "删除提醒"),
-    ("update_reminder_priority", "提醒优先级"),
-    ("group_reminder",           "群组备忘录"),
-    ("file_attachment",          "文件附件支持"),
-    ("office_to_pdf",            "Office 自动转 PDF"),
-    # Plans (定时任务)
-    ("morning_push",             "早间推送"),
-]
+def _build_items():
+    items = []
+    for t in scan_tools():
+        items.extend(t.switches)
+    # 固定项（非 tools 插件）
+    items.append(("morning_push", "早间推送"))
+    return items
+
+
+ITEMS = _build_items()
 
 
 class Sidebar(VerticalScroll):

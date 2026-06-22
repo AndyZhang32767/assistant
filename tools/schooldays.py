@@ -1,3 +1,12 @@
+#==TOOL=======================================================================
+#.       name: schooldays
+#.       access: pb
+#.       title: 课表查询
+#.       description: 从 CSV 文件读取课程安排，支持按日期查询和格式化输出
+#.       version: 1.0
+#.       sidebar: fetch_school_schedule=课表查询
+#==END TOOL===================================================================
+
 #=======================================================================================
 #.       tools/schooldays.py — 课表查询模块
 #.       从 CSV 课表文件中读取并格式化课程信息。
@@ -18,9 +27,18 @@
 import csv
 import os
 import datetime
+import pytz
 
-# -- 从 core/config.py 获取课表 CSV 文件路径
-from core.config import SCHEDULE_FILE
+
+#==CONFIG=======================================================================
+#.       课表与推送配置
+#==CONFIG=======================================================================
+SCHEDULE_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "schedule")  # 课表文件路径（项目根目录下的 schedule 文件）
+PUSH_HOUR = 5             # 推送小时
+PUSH_MINUTE = 0           # 推送分钟
+PUSH_SECOND = 0           # 推送秒 (精度 10s)
+PUSH_TIMEZONE = "Asia/Shanghai"  # 时区
+#==END CONFIG===================================================================
 
 #=======================================================================================
 #.       time_map — 节次编号到上课时间的映射
@@ -52,7 +70,7 @@ time_map = {
 #.         - 多节连续 → 返回第一节开始到最后一节结束
 #.       返回格式如 '8:30-10:05'
 #=============================================================
-def get_time_for_section(section_str):
+def get_time_for_section(section_str: str) -> str:
     if len(section_str) % 2 != 0:
         return section_str  # 非偶数长度 → 无法解析，返回原值
 
@@ -101,7 +119,8 @@ if os.path.exists(SCHEDULE_FILE):
 #=============================================================
 def fetch_school_schedule(target_date: str = None):
     if not target_date:
-        target_date = datetime.datetime.now().strftime('%Y-%m-%d')
+        tz = pytz.timezone(PUSH_TIMEZONE)
+        target_date = datetime.datetime.now(tz).strftime('%Y-%m-%d')
 
     # 兼容 YYYY/MM/DD 和 YYYY-MM-DD
     search_date = target_date.replace('/', '-')
@@ -129,7 +148,7 @@ def fetch_school_schedule(target_date: str = None):
 #=============================================================
 #.       parse_date() — 日期格式转换：yyyy/mm/dd → yyyy-mm-dd
 #=============================================================
-def parse_date(date_str):
+def parse_date(date_str: str) -> str:
     return date_str.replace('/', '-')
 
 
@@ -138,7 +157,7 @@ def parse_date(date_str):
 #.       参数 day 格式：yyyy/mm/dd
 #.       返回：课程字典列表
 #=============================================================
-def get_courses_on_day(day):
+def get_courses_on_day(day: str) -> list[dict]:
     target_date = parse_date(day)
     day_courses = [course for course in courses if course['排课日期'] == target_date]
     return day_courses
@@ -150,7 +169,7 @@ def get_courses_on_day(day):
 #.         例如 '2026/03/10/06' 表示 2026年3月10日第6节
 #.       返回：上课地点字符串
 #=============================================================
-def get_classroom_for_course(course_name):
+def get_classroom_for_course(course_name: str) -> str:
     parts = course_name.split('/')
     if len(parts) != 4:
         return "格式错误"

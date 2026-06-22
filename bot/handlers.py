@@ -41,7 +41,8 @@ logger = logging.getLogger(__name__)
 #=============================================================
 #.       Bot @username 的正则匹配（备用，当前使用 entity 方式检测）
 #=============================================================
-_pattern = re.compile(r'^[@username]\s*(.*)', re.DOTALL)
+# 备用正则匹配模式（当前使用 entity 方式检测 @mention，此变量保留供切换使用）
+_pattern = re.compile(r'^@\w+bot\s*(.*)', re.DOTALL)
 
 
 #=======================================================================================
@@ -53,8 +54,7 @@ _pattern = re.compile(r'^[@username]\s*(.*)', re.DOTALL)
 #.       发送随机欢迎语。适用于任何用户。
 #=============================================================
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    replies = ["你好！", "嗨，有什么可以帮你的？", "在的，请说。"]
-    reply = random.choice(replies)
+    reply = random.choice(["お帰り！"])
     logger.info(f"/start 来自 chat_id={update.effective_chat.id}")
     await update.message.reply_text(reply)
 
@@ -136,20 +136,37 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not contents:
         return
 
-    # 2. 判断是否触发回复：私聊直接触发，群聊检测 @mention entity
+    # -- qbittorrent magnet link 检测：命中则直接添加下载，跳过 Gemini
+    magnet_pattern = r'magnet:\?xt=urn:btih:[a-zA-Z0-9]{32,40}'
+    magnet_match = re.search(magnet_pattern, contents)
+    if magnet_match:
+        from tui.feature_flags import flag
+        if flag("qbittorrent"):
+            from tools.qbittorrent import add_qbittorrent_magnet_handler
+            result = add_qbittorrent_magnet_handler(magnet_match.group(0), chat_id)
+            logger.info(f"[qb] magnet 检测: chat_id={chat_id}")
+            await update.message.reply_text(result)
+            return
+
+    # 2. 判断是否触发回复：私聊直接触发，群聊检测 @mention 或 BOT_NAME 关键词
     is_triggered = False
     if chat_type == "private":
         is_triggered = True
     else:
+        from core.config import BOT_NAME
+        # 方式 A: @bot_username mention entity
         if update.message.entities:
             for entity in update.message.entities:
                 if entity.type == 'mention':
                     mention_text = update.message.text[entity.offset:entity.offset + entity.length]
                     if mention_text == '@' + context.bot.username:
-                        # 去掉 @bot 部分，只保留实际消息内容
                         contents = update.message.text[entity.offset + entity.length:].strip()
                         is_triggered = True
                         break
+        # 方式 B: 消息中包含 BOT_NAME 关键词（如 "助手 帮我..."）
+        if not is_triggered and contents and BOT_NAME in contents:
+            contents = contents.replace(BOT_NAME, '', 1).strip()
+            is_triggered = True
         if not contents:
             return
 
@@ -161,7 +178,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if auth_info is None:
         logger.info(f"[拦截] 黑名单 chat_id={chat_id}")
         if is_triggered:
-            await update.message.reply_text("抱歉，你没有使用权限。")
+            await update.message.reply_text("啊这，不认识喵(")
         return
 
     # 4. 从会话中提取 premium 状态、System Prompt 和历史记录
@@ -246,13 +263,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             save_history[chat_id] = history
             logger.warning(f"[生成] chat_id={chat_id} | response 无文本内容")
-            await update.message.reply_text("抱歉，请再说一遍。")
+            await update.message.reply_text("抱歉，我刚才走神了，请再说一遍？")
 
     except Exception as e:
         # 出错也保存 history，避免丢失已记录的上下文
         save_history[chat_id] = history
         logger.exception(f"[错误] 生成回复失败 chat_id={chat_id}: {e}")
-        await update.message.reply_text(f"出错了：{e}")
+        await update.message.reply_text(f"啊米诺斯:{e}")
 
 
 #=======================================================================================
@@ -294,11 +311,12 @@ async def handle_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     contents = update.message.text
 
-    # 2. 判断触发条件 — 私聊直接触发，群聊检测 @mention
+    # 2. 判断触发条件 — 私聊直接触发，群聊检测 @mention 或 BOT_NAME
     is_triggered = False
     if chat_type == "private":
         is_triggered = True
     else:
+        from core.config import BOT_NAME
         if update.message.entities:
             for entity in update.message.entities:
                 if entity.type == 'mention':
@@ -307,6 +325,9 @@ async def handle_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         contents = update.message.text[entity.offset + entity.length:].strip()
                         is_triggered = True
                         break
+        if not is_triggered and contents and BOT_NAME in contents:
+            contents = contents.replace(BOT_NAME, '', 1).strip()
+            is_triggered = True
         if not contents:
             return
 
@@ -324,7 +345,7 @@ async def handle_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if auth_info is None:
         logger.info(f"[拦截] 黑名单 chat_id={chat_id}")
         if is_triggered:
-            await update.message.reply_text("抱歉，你没有使用权限。")
+            await update.message.reply_text("啊这，不认识喵(")
         return
 
     mode = auth_info["mode"]
@@ -374,6 +395,17 @@ async def handle_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
             file_bytes = await doc_file.download_as_bytearray()
             file_mime = doc.mime_type or "application/octet-stream"
             file_name = doc.file_name or ""
+
+            # -- qbittorrent .torrent 文件检测
+            if file_name.lower().endswith(".torrent"):
+                from tui.feature_flags import flag
+                if flag("qbittorrent"):
+                    from tools.qbittorrent import add_qbittorrent_file_handler
+                    result = add_qbittorrent_file_handler(bytes(file_bytes), file_name, chat_id)
+                    logger.info(f"[qb] torrent 文件检测: chat_id={chat_id}")
+                    await message.reply_text(result)
+                    return
+
             file_type_label = f"文件({file_name}, {file_mime})"
             if replied_content.caption:
                 gemini_contents.append(f"原文件附带的文字: {replied_content.caption}")
@@ -496,7 +528,7 @@ async def handle_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     except Exception as e:
         logger.exception(f"[错误] 回复处理失败 chat_id={chat_id}: {e}")
-        await message.reply_text(f"出错了：{str(e)}")
+        await message.reply_text(f"X_X {str(e)}")
 
 
 #=======================================================================================
@@ -596,7 +628,7 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     auth_info = await get_chat_session(chat_id, chat_name, chat_type)
     if auth_info is None:
         if is_triggered:
-            await message.reply_text("抱歉，你没有使用权限。")
+            await message.reply_text("啊这，不认识喵(")
         return
 
     # 5. 未触发：静默记录到 history（仅记录文件名，不存储二进制数据）

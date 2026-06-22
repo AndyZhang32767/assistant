@@ -1,3 +1,12 @@
+#==TOOL=======================================================================
+#.       name: notice
+#.       access: pb
+#.       title: 群组备忘录
+#.       description: 为群聊提供备忘录功能，通过系统提醒事项记录群组备忘
+#.       version: 1.0
+#.       sidebar: group_reminder=群组备忘录
+#==END TOOL===================================================================
+
 #=======================================================================================
 #.       tools/notice.py — 群组备忘录工具
 #.       为群聊场景提供创建备忘录的功能。
@@ -8,10 +17,15 @@
 #.       供 Gemini 在群聊 Normal 模式下调用。
 #=======================================================================================
 
+#==CONFIG=======================================================================
+#.       (此工具无可配置参数)
+#==CONFIG=======================================================================
+#==END CONFIG===================================================================
+
 import datetime
 
 # -- 调用 tools/reminder.py 的 add_reminder() 将备忘录写入 macOS 提醒事项
-from tools.reminder import add_reminder
+from tools.reminder import add_reminder as _add_reminder
 
 
 #=============================================================
@@ -27,7 +41,7 @@ from tools.reminder import add_reminder
 #.       返回：结果字符串（供 Gemini 组织语言告知用户）
 #=============================================================
 def group_reminder(chat_id: str, name: str, body: str = "", due_date_str: str = None, priority: int = 0):
-    print(f"\n[Reminder] group_reminder: chat={chat_id} | {name} | due: {due_date_str}")
+    print(f"\n[Reminder 执行中] 群组({chat_id})备忘录: {name} | 时间: {due_date_str}")
 
     try:
         # 如果没有指定时间，使用当前时间
@@ -42,7 +56,7 @@ def group_reminder(chat_id: str, name: str, body: str = "", due_date_str: str = 
         full_body = f"[群组ID: {chat_id}]\n{body}" if body else f"[群组ID: {chat_id}]"
 
         # 调用 reminder 模块的 add_reminder() — 通过 AppleScript 写入系统提醒事项
-        result = add_reminder(name, body=full_body, due_date=due_date_obj, priority=priority)
+        result = _add_reminder(name, body=full_body, due_date=due_date_obj, priority=priority)
 
         if result:
             return f"已记录群组备忘录：'{name}'，来自群组{chat_id}，提醒时间 {due_date_obj.strftime('%Y-%m-%d %H:%M:%S')}。"

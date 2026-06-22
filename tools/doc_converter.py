@@ -1,3 +1,12 @@
+#==TOOL=======================================================================
+#.       name: doc_converter
+#.       access: pb
+#.       title: 文件转换
+#.       description: 使用 LibreOffice 将 Office 文档转换为 PDF，支持 Word/Excel/PPT
+#.       version: 1.0
+#.       sidebar: file_attachment=文件附件支持, office_to_pdf=Office转PDF
+#==END TOOL===================================================================
+
 #=======================================================================================
 #.       tools/doc_converter.py — Office 文档 → PDF 转换器
 #.       使用 LibreOffice headless 模式将 Microsoft Office 文档转为 PDF，
@@ -20,6 +29,12 @@ import subprocess
 import tempfile
 
 logger = logging.getLogger(__name__)
+
+#==CONFIG=======================================================================
+#.       _SOFFICE_TIMEOUT — LibreOffice 转换超时秒数
+#==CONFIG=======================================================================
+_SOFFICE_TIMEOUT = 120  # 转换超时秒数
+#==END CONFIG===================================================================
 
 #=============================================================
 #.       _OFFICE_EXT — 支持的 Office 文档后缀集合
@@ -159,7 +174,7 @@ def convert_to_pdf_bytes(file_bytes: bytes, filename: str) -> bytes | None:
 def _run_soffice(src_path: str, out_dir: str) -> None:
     result = subprocess.run(
         ["soffice", "--headless", "--convert-to", "pdf", "--outdir", out_dir, src_path],
-        capture_output=True, text=True, timeout=120,
+        capture_output=True, text=True, timeout=_SOFFICE_TIMEOUT,
     )
     if result.returncode != 0:
         raise RuntimeError(f"LibreOffice 失败: {result.stderr}")

@@ -23,9 +23,9 @@ from core.config import ADMIN_ID
 #.       返回规则：
 #.         - 私聊 (private)              → 返回空字符串（无需标注）
 #.         - 发送者是 ADMIN_ID           → "[发言者: Admin, user_id=...]"
-#.         - 其他群聊成员                 → "[发言者: <name>, user_id=..., 非管理员]"
+#.         - 其他群聊成员                 → "[发言者: <name>, user_id=..., 非Admin]"
 #.
-#.       群聊中标注"非管理员"的目的是告诉 Gemini：此人不是 Bot 拥有者，
+#.       群聊中标注"非Admin"的目的是告诉 Gemini：此人不是 Bot 拥有者，
 #.       不要将其误认为特权用户。
 #=============================================================
 def build_identity_tag(sender_id: int, sender_name: str, chat_type: str) -> str:
@@ -33,7 +33,7 @@ def build_identity_tag(sender_id: int, sender_name: str, chat_type: str) -> str:
         return ""
     if sender_id == ADMIN_ID:
         return f"[发言者: Admin, user_id={sender_id}]"
-    return f"[发言者: {sender_name}, user_id={sender_id}, 非管理员]"
+    return f"[发言者: {sender_name}, user_id={sender_id}, 非Admin]"
 
 
 #=============================================================

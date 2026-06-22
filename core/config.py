@@ -9,7 +9,7 @@ import os
 #=================================================================
 #.       VERSION — 版本号标识（只读，不可通过 TUI 修改）
 #=================================================================
-VERSION = "v5.0.hotfix.1p"
+VERSION = "6.0"
 
 # -- TELEGRAM_TOKEN → bot/main.py create_application() 构建 Telegram Application 时使用
 #===========================================================================================================
@@ -45,12 +45,6 @@ CUSTOM_SEARCH_API = ""
 #==================================================================================================
 SESSION_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "sessions_data.json")
 
-# -- SCHEDULE_FILE → tools/schooldays.py fetch_school_schedule() 读取课表 CSV
-#===============================================================================================
-#.       SCHEDULE_FILE — 课表 CSV 文件路径
-#.       CSV 需包含列：排课日期, 节次, 课程名称, 上课地点, 教师
-#===============================================================================================
-SCHEDULE_FILE = ""
 
 # -- ADMIN_ID → utils/identity.py build_identity_tag() 群聊中识别 Bot 拥有者
 #=============================================================================
@@ -67,6 +61,13 @@ ADMIN_ID = 0
 #===================================================================================================
 PROXY_URL = ""
 
+# -- BOT_NAME → 定义bot在群组中被唤起的名称 bot/handler.py 调用触发关键词
+#==================================
+#.       只在pb分类中使用
+#==================================
+
+BOT_NAME = "助手"
+
 # -- PRIVATE_INSTRUCTION → bot/session.py get_chat_session() 选择 'pr' 模式时分配给会话
 #====================================================================================================
 #.       PRIVATE_INSTRUCTION — 私聊 / Premium 模式的 System Prompt
@@ -80,12 +81,14 @@ PRIVATE_INSTRUCTION = """
 - 管理提醒事项（add_local_reminder / remove_local_reminder / update_reminder_priority / update_reminder_settings / fetch_local_reminders）
 - 查询课表（fetch_school_schedule）
 - 搜索网页（web_search）
+- 管理 BT 下载（add_qbittorrent_download / fetch_qb_status）
 - 涉及时间和提醒时，先调用 get_current_system_time 确认当前时间
 - 需要最新信息或验证事实时，使用 web_search
+- 遇到 magnet 磁力链或 BT 种子时，用 add_qbittorrent_download 添加下载任务
+- 询问下载进度时，用 fetch_qb_status 查询
 - 回复使用纯文本，不支持 Markdown 格式化
 - 回应简洁清晰，优先关注最新消息
-- 在生成提醒事项前，先用get_current_system_time 来确定准确的时间
-"""
+- 在生成提醒事项前，先用get_current_system_time 来确定准确的时间"""
 
 # -- PUBLIC_INSTRUCTION → bot/session.py get_chat_session() 选择 'pb' 模式时分配给会话
 #====================================================================================================
@@ -105,5 +108,4 @@ PUBLIC_INSTRUCTION = """
 - 回复使用纯文本，不支持 Markdown 格式化
 - 保持友善幽默，但拒绝越界的请求，不透露他人隐私
 - 课表等信息仅在管理员请求时提供
-- 在生成提醒事项前，先用get_current_system_time 来确定准确的时间
-"""
+- 在生成提醒事项前，先用get_current_system_time 来确定准确的时间"""

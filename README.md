@@ -1,248 +1,170 @@
 # Assistant Bot
 
-基于 Google Gemini 的模块化 Telegram Bot，支持多模态对话、macOS 提醒事项集成、网页搜索、课表查询等功能，附带 Textual TUI 管理控制台。
+基于 Telegram + Google Gemini 的多功能 AI 助手，支持插件化工具扩展。
 
-## 功能
+## 功能概览
 
-- **AI 对话** — 支持文字、图片、文档、音频、视频等多模态输入
-- **提醒事项** — 通过自然语言增删改查 macOS Reminders.app 中的提醒
-- **课表查询** — 查询 CSV 格式的课程表，支持按日期查询
-- **网页搜索** — 基于 DuckDuckGo 的实时搜索
-- **Office 文档** — 自动将 `.docx`/`.pptx`/`.xlsx` 转换为 PDF 后传给 Gemini
-- **TUI 管理** — 终端图形界面，实时日志查看、功能开关、历史记录浏览、配置编辑
-- **权限分级** — Premium/Normal 两级用户，各自有不同的 System Prompt 和可用工具
-- **群聊支持** — 支持 Telegram 群组中 @bot 触发，自动标注发言者身份
-- **每日推送** — 定时向 Premium 用户推送当日课表
-
-## 架构
-
-```
-                  ┌──────────────────────────┐
-                  │       Telegram API        │
-                  └────────────┬─────────────┘
-                               │
-                  ┌────────────▼─────────────┐
-                  │         bot/              │
-                  │  main.py      应用生命周期 │
-                  │  handlers.py  消息处理     │
-                  │  session.py   授权与会话   │
-                  └────────────┬─────────────┘
-                               │
-         ┌─────────────────────┼─────────────────────┐
-         │                     │                     │
-  ┌──────▼──────┐   ┌──────────▼─────────┐   ┌───────▼──────┐
-  │    core/    │   │      tools/        │   │     tui/     │
-  │ config.py   │   │ reminder.py (Mac) │   │ app.py       │
-  │ gemini_setup│   │ schooldays.py     │   │ widgets/     │
-  │ file_support│   │ search.py (DDG)   │   │              │
-  │ logging     │   │ notice.py         │   │              │
-  └─────────────┘   │ doc_converter.py  │   └──────────────┘
-                    └────────────────────┘
-```
-
-## 环境要求
-
-- **Python 3.10+**（使用了 `zoneinfo` 标准库）
-- **Telegram Bot Token** — 通过 [@BotFather](https://t.me/BotFather) 创建
-- **Google Gemini API Key** — [Google AI Studio](https://aistudio.google.com/apikey) 获取
-
-### 可选依赖
-
-| 功能 | 依赖 | 平台 |
-|---|---|---|
-| Office→PDF 转换 | [LibreOffice](https://www.libreoffice.org/) | 全平台 |
-| 提醒事项集成 | macOS（通过 `osascript` 调用 AppleScript） | 仅 macOS |
-| 课表查询 | CSV 文件（格式见下方说明） | 全平台 |
+- 私聊 AI 对话（premium 模式，开放全部工具）
+- 群聊 @bot 响应（normal 模式，受限工具集）
+- macOS 系统提醒事项管理
+- 课表查询与每日定时推送
+- DuckDuckGo 网页搜索
+- 群组备忘录
+- BT 下载集成（qBittorrent）
+- Office 文档转 PDF（LibreOffice）
+- 新用户授权弹窗
+- TUI 控制台配置管理
+- 插件系统：`tools/` 目录自动发现与注册
 
 ## 快速开始
 
 ```bash
-# 1. 克隆仓库
-git clone <repo-url>
-cd <project-directory>
-
-# 2. 安装依赖
+# 1. 安装依赖
 pip install -r requirements.txt
 
-# 3. 配置
-# 在 core/config.py 中填入你的 TELEGRAM_TOKEN、GEMINI_API_KEY 等
+# 2. 编辑 core/config.py，填入你的 Telegram Token、Gemini API Key 等配置
 
-# 4. 启动（命令行模式）
-python run.py
-
-# 5. 或启动（TUI 管理控制台模式，推荐）
-python tui_run.py
+# 3. 启动
+python3 run.py          # 命令行模式（阻塞 polling）
+python3 tui_run.py      # TUI 控制台模式（推荐）
 ```
 
-## 配置说明
+## 配置
 
-所有配置项集中在 [`core/config.py`](core/config.py) 中：
+编辑 [core/config.py](core/config.py) 中的以下变量：
 
-| 配置项 | 必填 | 说明 |
-|---|---|---|
-| `TELEGRAM_TOKEN` | 是 | Telegram Bot Token，从 @BotFather 获取 |
-| `GEMINI_API_KEY` | 是 | Google Gemini API 密钥 |
-| `ADMIN_ID` | 是 | 管理员的 Telegram 用户 ID（给 `0` 则不会将任何人设为管理员）。可通过 @userinfobot 获取自己的 ID |
-| `MODEL_TYPE` | 否 | Gemini 模型，默认 `gemini-2.5-flash` |
-| `PROXY_URL` | 否 | HTTP 代理地址，如 `http://127.0.0.1:10808`，留空则不使用代理 |
-| `CUSTOM_SEARCH_API` | 否 | Google Custom Search API 密钥（备用，当前未启用） |
-| `SCHEDULE_FILE` | 否 | 课表 CSV 文件路径 |
-| `PRIVATE_INSTRUCTION` | 否 | 私聊/Premium 模式的 System Prompt |
-| `PUBLIC_INSTRUCTION` | 否 | 群聊/Normal 模式的 System Prompt |
-| `SESSION_FILE` | 否 | 会话数据持久化路径，默认 `data/sessions_data.json` |
+| 变量 | 说明 | 示例 |
+|------|------|------|
+| `TELEGRAM_TOKEN` | Telegram Bot Token | 从 @BotFather 获取 |
+| `GEMINI_API_KEY` | Google Gemini API 密钥 | 从 aistudio.google.com 获取 |
+| `MODEL_TYPE` | Gemini 模型 | `gemini-3.1-flash-lite-preview` |
+| `ADMIN_ID` | 管理员 Telegram 用户 ID（整数） | `123456789` |
+| `PROXY_URL` | HTTP 代理（可选，留空不启用） | `http://127.0.0.1:10808` |
+| `BOT_NAME` | 群聊中唤起 Bot 的关键词 | `助手` |
+| `PRIVATE_INSTRUCTION` | 私聊 System Prompt | 定义角色和行为 |
+| `PUBLIC_INSTRUCTION` | 群聊 System Prompt | 定义群聊角色和行为 |
 
-### System Prompt
+Tools 参数（如 qBittorrent 连接信息、课表推送时间）编辑对应 `tools/*.py` 中的 `#==CONFIG==` 段，或通过 TUI 的 Tools 菜单编辑。
 
-`PRIVATE_INSTRUCTION`（私聊模式）和 `PUBLIC_INSTRUCTION`（群聊模式）均已预填引导模板，包含：
-- 角色设定示例
-- 可用工具列表及使用场景（帮助 Gemini 正确调用 Function Calling）
-- 注意事项（日期格式、时间确认等）
+## 架构
 
-直接编辑 `core/config.py` 中对应变量即可自定义。
-
-### 课表 CSV 格式
-
-课表文件需包含以下列：
-
-| 列名 | 说明 |
-|---|---|
-| `排课日期` | 日期，YYYYMMDD 格式（如 `20260617`） |
-| `节次` | 节次编号（如 `01`、`02`） |
-| `课程名称` | 课程名称 |
-| `上课地点` | 教室/地点 |
-| `教师` | 教师姓名 |
-
-示例：
-```csv
-排课日期,节次,课程名称,上课地点,教师
-20260617,01,高等数学,教学楼301,张教授
-20260617,02,大学物理,实验楼B,李教授
+```
+assistant/
+├── bot/                  # Bot 核心
+│   ├── main.py           # 入口、Application 构建、定时任务注册
+│   ├── handlers.py       # Telegram 消息/命令处理器
+│   └── session.py        # 会话管理、授权、持久化
+├── core/                 # 基础设施
+│   ├── config.py         # 全局配置（密钥、模型、System Prompt）
+│   ├── gemini_setup.py   # Gemini 客户端、工具注册、安全过滤
+│   ├── file_support.py   # 文件类型与大小限制
+│   └── logging_setup.py  # 日志配置
+├── tools/                # 插件模块（自动发现注册）
+│   ├── system_time.py    # 系统时间查询
+│   ├── reminder.py       # macOS 提醒事项（增删改查）
+│   ├── schooldays.py     # 课表查询 + 每日推送
+│   ├── search.py         # DuckDuckGo 网页搜索
+│   ├── notice.py         # 群组备忘录
+│   ├── doc_converter.py  # Office → PDF 转换
+│   └── qbittorrent.py    # BT 下载集成
+├── tui/                  # Textual 控制台
+│   ├── app.py            # TUI 主应用
+│   ├── config_parser.py  # config.py 解析与写回
+│   ├── feature_flags.py  # 功能开关管理
+│   └── widgets/          # UI 组件
+│       ├── sidebar.py        # 侧边栏（状态/开关）
+│       ├── config_modal.py   # 配置编辑弹窗
+│       ├── tools_modal.py    # Tools 参数编辑
+│       ├── auth_modal.py     # 新用户授权弹窗
+│       ├── history_modal.py  # 对话历史查看
+│       ├── schedule_modal.py # 课表查看
+│       ├── status_modal.py   # 系统状态
+│       └── log_panel.py      # 日志面板
+├── utils/                # 工具库
+│   ├── tool_scanner.py   # 插件扫描与注册
+│   ├── scheduler.py      # 定时任务注册 API
+│   ├── helpers.py        # 对话历史裁剪、typing 动画
+│   ├── identity.py       # 群聊发言者身份标签
+│   ├── system_stats.py   # 系统资源监控
+│   └── power_monitor.py  # 电源状态监控
+├── data/                 # 运行时数据（会话、历史、开关状态等 JSON）
+├── run.py                # 命令行启动入口
+└── tui_run.py            # TUI 控制台启动入口
 ```
 
-## 使用说明
+## TUI 控制台
 
-### 命令行模式 (`python run.py`)
+TUI 模式基于 [Textual](https://textual.textualize.io/) 框架，提供实时配置管理界面。
 
-后台运行，新用户授权通过终端输入处理。
+### 界面布局
 
-### TUI 模式 (`python tui_run.py`)
+- **左侧边栏**：Bot 运行状态、CPU/内存、各 tool 独立开关
+- **右侧主区域**：实时日志流
+- **底部栏**：快捷键提示
 
-启动 Textual 终端界面，提供：
-- **日志面板** — 实时彩色日志
-- **侧边栏** — 运行时开关各项功能
-- **配置编辑器** — 可视化修改配置（快捷键 `c`）
-- **历史浏览器** — 查看/清除用户对话记录（快捷键 `h`）
-- **授权弹窗** — 新用户接入时图形化审批
+### 快捷键
 
-#### TUI 快捷键
-
-| 按键 | 功能 |
-|---|---|
-| `q` | 退出 |
-| `c` | 打开配置编辑器 |
-| `s` | 保存配置 |
+| 键 | 功能 |
+|---|------|
+| `c` | 打开配置编辑（config.py 变量） |
+| `t` | 打开 Tools 参数管理 |
+| `h` | 查看会话历史 |
+| `s` | 保存配置到文件 |
 | `r` | 重启 Bot |
-| `h` | 打开历史记录 |
-| `Ctrl+L` | 聚焦日志面板 |
+| `q` | 退出 |
+| `Ctrl+L` | 查看完整日志 |
 
-### Telegram 命令
+### 功能开关
 
-| 命令 | 功能 | 权限 |
-|---|---|---|
-| `/start` | 打招呼 | 所有人 |
-| `/class` | 查询今日课表 | Premium 用户 |
-| `/clear` | 清除对话历史 | 已授权用户 |
+侧边栏提供每个 tool 和子功能的独立开关，实时生效无需重启。开关状态持久化到 `data/feature_flags.json`。
 
-### 群聊使用
+支持的功能开关：
+- 各 tool 模块整体启用/禁用
+- 文件附件支持（`file_attachment`）
+- Office 转 PDF（`office_to_pdf`）
+- 早间课表推送（`morning_push`）
+- 更多…
 
-在群组中 @bot 即可触发回复。Bot 会自动为每条消息标注发言者名称，帮助 AI 区分不同用户。
+## 命令
 
-## 可用工具（Gemini Function Calling）
+Bot 在 Telegram 中支持以下命令：
 
-Bot 注册了以下工具供 Gemini 调用：
+| 命令 | 说明 | 权限 |
+|------|------|:--:|
+| `/start` | 发送欢迎语 | 所有用户 |
+| `/class` | 查询当日课表 | premium 用户 |
+| `/clear` | 清除当前会话历史 | 已授权用户 |
 
-| 函数 | 适用模式 | 功能 |
-|---|---|---|
-| `get_current_system_time` | 全部 | 获取系统当前时间 |
-| `add_local_reminder` | Premium | 添加提醒事项 |
-| `remove_local_reminder` | Premium | 删除提醒事项 |
-| `update_reminder_priority` | Premium | 调整提醒优先级 |
-| `update_reminder_settings` | Premium | 更新提醒设置（优先级、提前提醒） |
-| `fetch_local_reminders` | Premium | 列出所有提醒事项 |
-| `fetch_school_schedule` | 全部 | 查询课表 |
-| `web_search` | 全部 | DuckDuckGo 网页搜索 |
-| `group_reminder` | Normal | 创建群组备忘录 |
+## 用户授权
 
-## 目录结构
+新用户首次发消息时，会在 TUI 控制台弹出授权窗口。管理员可选择：
+- **Premium（私聊模式）**：开放全部工具，适合私密对话
+- **Normal（群聊模式）**：受限工具集，适合群组场景
+- **拒绝**：加入黑名单，Bot 不再响应
 
-```
-├── run.py                     # 命令行入口
-├── tui_run.py                 # TUI 入口
-├── requirements.txt           # Python 依赖
-├── .gitignore
-│
-├── bot/                       # Telegram Bot 核心
-│   ├── main.py                # 应用组装、每日推送
-│   ├── handlers.py            # 消息/命令处理器
-│   └── session.py             # 授权、会话持久化
-│
-├── core/                      # 配置与初始化
-│   ├── config.py              # 配置中心（密钥、模型、System Prompt）
-│   ├── gemini_setup.py        # Gemini 客户端单例、工具注册
-│   ├── file_support.py        # MIME 类型映射
-│   └── logging_setup.py       # 日志配置
-│
-├── tools/                     # Gemini Function Calling 工具
-│   ├── reminder.py            # macOS Reminders.app 集成 (AppleScript)
-│   ├── schooldays.py          # 课表 CSV 解析查询
-│   ├── search.py              # DuckDuckGo 搜索
-│   ├── notice.py              # 群组备忘录
-│   └── doc_converter.py       # Office→PDF 转换 (LibreOffice)
-│
-├── tui/                       # Textual TUI 管理控制台
-│   ├── app.py                 # TUI 主应用
-│   ├── config_parser.py       # config.py 读写解析
-│   ├── feature_flags.py       # 功能开关持久化
-│   └── widgets/               # UI 组件
-│       ├── auth_modal.py      # 授权弹窗
-│       ├── config_modal.py    # 配置编辑器
-│       ├── history_modal.py   # 历史记录查看器
-│       ├── log_panel.py       # 实时日志面板
-│       └── sidebar.py         # 功能开关侧边栏
-│
-├── utils/
-│   └── helpers.py             # 历史裁剪、输入状态动画
-│
-├── scripts/
-│   └── gemini_module.py       # 实验性：Gemini 提醒解析（备用方案）
-│
-└── data/                      # 运行时数据（已 gitignore）
-    └── .gitkeep
-```
+授权信息持久化到 `data/sessions_data.json`，黑名单单独存储。
 
-## 平台说明
+## 插件系统
 
-### macOS 提醒事项
+`tools/` 目录下的 `.py` 文件会被自动发现和注册，无需修改核心代码。
 
-`tools/reminder.py` 通过 `osascript` 调用 AppleScript 与 Reminders.app 交互，**仅在 macOS 上可用**。其他平台上提醒相关功能会报错。
+每个 tool 文件通过 `#==TOOL==` 头部声明元信息，可选 `#==CONFIG==` 段声明用户可配置参数。详见 [tools.md](tools.md)。
 
-### LibreOffice
+## 定时任务
 
-`tools/doc_converter.py` 需要安装 LibreOffice 才能进行 Office 文档转换：
+通过 `utils/scheduler.py` 注册定时任务，精度 10 秒。当前内置任务：
 
-- **macOS**：`brew install --cask libreoffice`
-- **Linux**：`sudo apt install libreoffice`
-- **Windows**：从 [libreoffice.org](https://www.libreoffice.org/) 下载
+- **课表推送**：每日指定时间向 premium 用户推送当日课表
+- **qBittorrent 轮询**：定时检查 BT 下载状态，完成后自动打包通知
+- **主调度器**：每 10 秒检查一次待执行任务队列
 
-未安装 LibreOffice 不影响其他功能。
+## 系统依赖（可选）
 
-## 安全提示
+| 依赖 | 用途 | 安装 |
+|------|------|------|
+| LibreOffice | Office 文档 → PDF 转换 | `brew install libreoffice` |
+| qBittorrent | BT 下载 | 需开启 Web UI（设置 → Web UI） |
 
-- 请勿将含真实密钥的 `core/config.py` 提交到公开仓库
-- `data/` 目录下的 JSON 文件包含运行时用户数据，已在 `.gitignore` 中排除
-- 提醒功能通过 `osascript` 执行由 AI 生成的参数构造的 shell 命令，请注意安全风险
-- 如密钥曾提交到 Git 历史，建议立即轮换并清理历史
-
-## License
-
-MIT
+不支持的操作系统特性：
+- `tools/reminder.py` — 仅支持 macOS（依赖 AppleScript）
+- `utils/power_monitor.py` — 仅支持 macOS（依赖 pmset）

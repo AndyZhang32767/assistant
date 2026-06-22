@@ -7,10 +7,8 @@
 #.         3. main() — 命令行模式的阻塞式 polling 入口
 #=======================================================================================
 
-import datetime
 import logging
 import os
-from zoneinfo import ZoneInfo
 
 from telegram.ext import Application, CommandHandler, MessageHandler, filters
 from telegram.request import HTTPXRequest
@@ -21,17 +19,29 @@ from bot.handlers import start_command, class_command, clear_command, handle_mes
 from bot.session import load_sessions, load_history, load_denied, persist_history, sessions
 # -- 从 core/config.py 拉取 Bot Token、代理地址和版本号
 from core.config import TELEGRAM_TOKEN, PROXY_URL, VERSION
-# -- 从 core/logging_setup.py 获取日志初始化函数
 from core.logging_setup import setup_logging
-# -- 从 tools/schooldays.py 获取课表查询函数
-from tools.schooldays import fetch_school_schedule
+from utils.scheduler import register_schedule, check_schedules, set_timezone
+
+# 安全导入：插件可能不存在
+try:
+    from tools.schooldays import PUSH_HOUR, PUSH_MINUTE, PUSH_SECOND, PUSH_TIMEZONE, fetch_school_schedule
+    _has_schooldays = True
+except ImportError:
+    _has_schooldays = False
+
+try:
+    from tools.qbittorrent import _check_qbittorrent_torrents, QB_POLL_INTERVAL
+    _has_qbittorrent = True
+except ImportError:
+    _has_qbittorrent = False
 
 logger = logging.getLogger(__name__)
 
 
 #=======================================================================================
 #.       每日早间推送任务
-#.       由 Application.job_queue 在每天 05:00 (Asia/Singapore) 触发。
+#.       由调度器在每天 PUSH_HOUR:PUSH_MINUTE:PUSH_SECOND (PUSH_TIMEZONE) 触发。
+#.       检查侧边栏 morning_push 开关，关闭时跳过。
 #.       遍历 sessions 字典，找到所有 chk="T"（premium）用户，
 #.       调用 fetch_school_schedule() 获取当日课表并逐一发送。
 #=======================================================================================
@@ -39,7 +49,7 @@ logger = logging.getLogger(__name__)
 async def daily_morning_push(context):
     from tui.feature_flags import flag
     if not flag("morning_push"):
-        logger.info("早间推送已关闭")
+        logger.info("早间推送已关闭（侧边栏开关），跳过。")
         return
 
     logger.info("执行早间课表推送任务...")
@@ -49,7 +59,7 @@ async def daily_morning_push(context):
     for cid, info in sessions.items():
         if info.get("chk") == "T":
             try:
-                message = f"早上好，新的一天开始了，这是今天的课表：\n\n{schedule_text}"
+                message = f"早上好。新的一天开始了，这是今天的课表哦：\n\n{schedule_text}"
                 await context.bot.send_message(chat_id=cid, text=message)
                 push_count += 1
                 logger.info(f"课表推送成功 -> chat_id={cid}")
@@ -60,6 +70,15 @@ async def daily_morning_push(context):
 
 
 #=======================================================================================
+#.       Shutdown 回调 — 在 Bot 停止前将内存中的聊天历史持久化到 JSON 文件
+#=======================================================================================
+
+async def _save_history_on_shutdown(application):
+    await persist_history()
+    logger.info("历史记录已保存。")
+
+
+#=======================================================================================
 #.       create_application() — 构建并配置 Telegram Application
 #.
 #.       执行流程：
@@ -67,6 +86,7 @@ async def daily_morning_push(context):
 #.         2. 将 PROXY_URL 写入环境变量（确保 httpx 所有请求走代理）
 #.         3. 从本地 JSON 文件恢复 sessions / history / denied_ids
 #.         4. 构建 Application 对象（有代理则注入 HTTPXRequest）
+#.            — 同时通过 .post_shutdown() 注册持久化回调
 #.         5. 注册 Handler — 顺序很重要：
 #.            a. REPLY + (TEXT|PHOTO) → handle_reply （回复消息，优先级最高）
 #.            b. Document|PHOTO|VIDEO|AUDIO|VOICE → handle_file （文件/媒体）
@@ -106,13 +126,14 @@ def create_application() -> Application:
         application = (
             Application.builder()
             .token(TELEGRAM_TOKEN)
+            .post_shutdown(_save_history_on_shutdown)
             .request(request)
             .get_updates_request(request)
             .build()
         )
         logger.info(f"Telegram 使用代理: {PROXY_URL}")
     else:
-        application = Application.builder().token(TELEGRAM_TOKEN).build()
+        application = Application.builder().token(TELEGRAM_TOKEN).post_shutdown(_save_history_on_shutdown).build()
 
     # 5. 注册 Handler（顺序很重要：reply 优先 → 文件/媒体 → 普通文字 → 命令）
     application.add_handler(MessageHandler(filters.REPLY & (filters.TEXT | filters.PHOTO), handle_reply))
@@ -125,33 +146,48 @@ def create_application() -> Application:
     application.add_handler(CommandHandler("class", class_command))
     application.add_handler(CommandHandler("clear", clear_command))
 
-    # 6. 注册每日 05:00 SGT 课表推送任务
-    application.job_queue.run_daily(
-        daily_morning_push,
-        time=datetime.time(hour=5, minute=0, second=0, tzinfo=ZoneInfo("Asia/Singapore"))
+    # 6. 注册主调度器（每 10s 检查一次）
+    application.job_queue.run_repeating(
+        check_schedules,
+        interval=10,
+        first=5,
+        name="master_scheduler",
+        job_kwargs={"max_instances": 1, "misfire_grace_time": 15},
     )
+
+    # 6a. 课表推送（通过调度器注册）
+    if _has_schooldays:
+        set_timezone(PUSH_TIMEZONE)
+        register_schedule(
+            hour=int(PUSH_HOUR), minute=int(PUSH_MINUTE),
+            second=int(PUSH_SECOND),
+            callback=daily_morning_push,
+        )
+        logger.info(f"课表推送已注册到调度器 (时区: {PUSH_TIMEZONE})。")
+
+    # 6b. qbittorrent 下载轮询
+    if _has_qbittorrent:
+        logging.getLogger("apscheduler.executors.default").setLevel(logging.WARNING)
+        application.job_queue.run_repeating(
+            _check_qbittorrent_torrents,
+            interval=int(QB_POLL_INTERVAL),
+            first=10,
+            name="qb_poll",
+            job_kwargs={"max_instances": 5, "misfire_grace_time": 30},
+        )
+        logger.info("qbittorrent 轮询任务已注册。")
 
     return application
 
 
 #=======================================================================================
-#.       Shutdown 回调 — 在 Bot 停止前将内存中的聊天历史持久化到 JSON 文件
-#=======================================================================================
-
-async def _save_history_on_shutdown(application):
-    await persist_history()
-    logger.info("历史记录已保存。")
-
-
-#=======================================================================================
 #.       main() — 命令行模式入口
-#.       创建 Application → 注册 shutdown 回调 → 启动阻塞式 polling。
+#.       启动阻塞式 polling（shutdown 回调已在 create_application() 中注册）。
 #.       该函数在 TUI 模式下不会被调用（TUI 使用 create_application() + 手动 start）。
 #=======================================================================================
 
 def main() -> None:
     application = create_application()
-    application.add_shutdown_handler(_save_history_on_shutdown)
     logger.info(f"Bot {VERSION} 启动，开始轮询...")
     application.run_polling()
 

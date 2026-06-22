@@ -20,6 +20,9 @@ from textual.widgets import Static, Button, Label
 #=======================================================================================
 
 class HistoryList(ModalScreen):
+    BINDINGS = [
+        ("escape", "dismiss", "Close"),
+    ]
     CSS = """
     HistoryList {
         align: center middle;
@@ -96,6 +99,9 @@ class HistoryList(ModalScreen):
 #=======================================================================================
 
 class ChatHistoryView(ModalScreen):
+    BINDINGS = [
+        ("escape", "dismiss", "Close"),
+    ]
     CSS = """
     ChatHistoryView {
         align: center middle;

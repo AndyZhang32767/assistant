@@ -2,4 +2,12 @@ __pycache__/
 .DS_Store
 *.pyc
 *.pyo
-data/sessions_data.json
+
+# Runtime data (contains user sessions, history, denied lists)
+data/*.json
+
+# Local environment file (contains real secrets — see .env.example)
+.env
+
+# Personal schedule file
+schedule

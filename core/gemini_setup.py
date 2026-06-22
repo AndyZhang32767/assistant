@@ -14,13 +14,34 @@ from google.genai import types
 
 # -- 从 core/config.py 拉取 API 密钥和代理配置
 from core.config import GEMINI_API_KEY, PROXY_URL
-# -- 从 tools/ 模块导入所有可用工具函数，注册给 Gemini 调用
-from tools.reminder import get_current_system_time, add_local_reminder, remove_local_reminder, update_reminder_priority, update_reminder_settings, fetch_local_reminders
-from tools.schooldays import fetch_school_schedule
-from tools.notice import group_reminder
-from tools.search import web_search
+# -- 从 tools/ 目录动态扫描所有工具插件
+from utils.tool_scanner import scan_tools
 
 logger = logging.getLogger(__name__)
+
+# 启动时扫描一次，构建工具列表
+_tools = scan_tools()
+
+# 为 premium 模式收集所有工具函数，为 normal 模式仅收集 pb 工具
+_tool_callables = {}
+tools_list = []
+toolsp_list = []
+
+for t in _tools:
+    _tool_callables[t.name] = t.functions
+    for fn in t.functions.values():
+        if t.access in ("pr", "pb"):
+            tools_list.append(fn)
+        if t.access == "pb":
+            toolsp_list.append(fn)
+
+
+def lookup_tool(name: str):
+    """根据函数名查找 callable。"""
+    for mod_funcs in _tool_callables.values():
+        if name in mod_funcs:
+            return mod_funcs[name]
+    return None
 
 #=======================================================================================
 #.       Gemini 客户端单例
@@ -51,36 +72,6 @@ def get_gemini_client() -> genai.Client:
             raise
     return _client
 
-
-# -- tools_list → bot/handlers.py handle_message() / handle_reply() 中 premium 模式使用的工具集
-#=======================================================================================
-#.       tools_list — Premium 模式工具集（私聊专用）
-#.       开放完整工具：系统时间、增删查提醒、优先级/提前提醒修改、
-#.       课表查询、网页搜索。模型在生成回复时可自主决定调用这些函数获取实时数据。
-#=======================================================================================
-tools_list = [
-    get_current_system_time,
-    add_local_reminder,
-    remove_local_reminder,
-    update_reminder_priority,
-    update_reminder_settings,
-    fetch_local_reminders,
-    fetch_school_schedule,
-    web_search,
-]
-
-# -- toolsp_list → bot/handlers.py handle_message() / handle_reply() 中 normal 模式使用的工具集
-#=======================================================================================
-#.       toolsp_list — Normal 模式工具集（群聊专用）
-#.       仅开放基础工具：系统时间、课表查询、网页搜索、群组备忘录。
-#.       群聊场景下不开放个人提醒功能，避免跨用户数据泄露。
-#=======================================================================================
-toolsp_list = [
-    get_current_system_time,
-    fetch_school_schedule,
-    web_search,
-    group_reminder,
-]
 
 # -- safety_settings_off → bot/handlers.py handle_message() / handle_reply() 中 premium 模式使用
 #=======================================================================================

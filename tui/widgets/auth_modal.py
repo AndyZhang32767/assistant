@@ -18,6 +18,9 @@ from textual.widgets import Static, Button
 
 
 class AuthModal(ModalScreen):
+    BINDINGS = [
+        ("escape", "dismiss", "Close"),
+    ]
     CSS = """
     AuthModal {
         align: center middle;
