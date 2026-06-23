@@ -259,7 +259,7 @@ def write_config(filepath: str, sections: list[Section]) -> None:
                     val = var.value.strip()
                     expr_vars = {"SESSION_FILE"}   # 表达式变量，不加引号
                     str_vars = {"TELEGRAM_TOKEN", "GEMINI_API_KEY", "MODEL_TYPE",
-                                "PROXY_URL"}
+                                "PROXY_URL", "BOT_NAME"}
 
                     if name in expr_vars or ("(" in val and ")" in val):
                         result.append(f'{indent}{name} = {val}\n')
