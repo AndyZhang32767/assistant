@@ -148,6 +148,7 @@ class BotTUI(App):
         ("r", "restart", "Restart"),
         ("h", "show_history", "History"),
         ("t", "tools", "Tools"),
+        ("m", "show_manage", "Manage"),
         ("ctrl+s", "save_config", "Save"),
         ("p", "show_status", "Status"),
     ]
@@ -193,6 +194,7 @@ class BotTUI(App):
                 yield Button("t.Tools", id="sect-tools")
                 yield Button("s.Schedule", id="sect-schedule")
                 yield Button("h.History", id="sect-hist")
+                yield Button("m.Manage", id="sect-manage")
                 yield Button("p.Status", id="sect-status")
                 yield Button("r.Restart", id="sect-restart")
                 yield Button("Ctrl+S Save", id="sect-save")
@@ -259,6 +261,8 @@ class BotTUI(App):
                 self.action_show_schedule()
             elif tag == "status":
                 self.action_show_status()
+            elif tag == "manage":
+                self.action_show_manage()
             elif tag == "quit":
                 self.exit()
 
@@ -298,6 +302,11 @@ class BotTUI(App):
         #.       快捷键 p：查看系统资源占用。
         from tui.widgets.status_modal import StatusModal
         self.push_screen(StatusModal())
+
+    def action_show_manage(self) -> None:
+        #.       快捷键 m：工具管理（查看已安装/可安装工具）。
+        from tui.widgets.manage_modal import ManageModal
+        self.push_screen(ManageModal())
 
     def action_view_log(self) -> None:
         #.       快捷键 Ctrl+L：打开可选中/复制的日志弹窗。
@@ -343,15 +352,20 @@ class BotTUI(App):
         self._bot_task = asyncio.create_task(_run())
 
     async def _restart_bot(self) -> None:
-        #.       重启 Bot：重新解析配置 → 停止旧实例 → 启动新实例。
-        logger.info("Restarting bot...")
-        # 重新解析配置（用户在弹窗中的修改已写回文件，这里重新读取）
-        self._sections = parse_config(CONFIG_PATH)
+        #.       完全重启：保存状态 → 停止 Bot → 用 os.execv 替换当前进程。
+        #.       这样可以确保所有模块缓存被清空，tools/ 变更全部生效。
+        import os
+        import sys
+        logger.info("Restarting whole process...")
+        # 1) 保存会话历史
+        try:
+            from bot.session import persist_history
+            await persist_history()
+        except Exception as e:
+            logger.error(f"Save history error: {e}")
+        # 2) 停止 Bot
         if self._application:
             try:
-                # -- persist_history() 来自 bot/session.py
-                from bot.session import persist_history
-                await persist_history()
                 await self._application.updater.stop()
                 await self._application.stop()
                 await self._application.shutdown()
@@ -365,9 +379,10 @@ class BotTUI(App):
             except asyncio.CancelledError:
                 pass
             self._bot_task = None
-        await asyncio.sleep(1)
-        self._start_bot()
-        self.notify("Bot restarted")
+        # 3) 用 execv 替换当前进程
+        self.notify("Restarting process...")
+        await asyncio.sleep(0.5)
+        os.execv(sys.executable, [sys.executable] + sys.argv)
 
     def on_unmount(self) -> None:
         #.       TUI 关闭时的清理：取消 Bot 任务，尝试保存历史。

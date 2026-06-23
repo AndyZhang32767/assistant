@@ -17,22 +17,25 @@ from textual.widgets import Static, Switch
 
 # -- 从 tui/feature_flags.py 获取开关加载/保存函数
 from tui.feature_flags import load_flags, save_flags
-from utils.tool_scanner import scan_tools
 
 
 #=============================================================
 #.       ITEMS — 从 tools/ 目录自动扫描 + 固定项
 #=============================================================
 def _build_items():
+    import sys
+    from utils.tool_scanner import scan_tools as _scan
     items = []
-    for t in scan_tools():
+    for t in _scan():
         items.extend(t.switches)
-    # 固定项（非 tools 插件）
-    items.append(("morning_push", "早间推送"))
+    # 早间推送依赖 schooldays 插件，仅在该插件存在时显示
+    sys.modules.pop("tools.schooldays", None)
+    try:
+        import tools.schooldays  # noqa: F401
+        items.append(("morning_push", "早间推送"))
+    except ImportError:
+        pass
     return items
-
-
-ITEMS = _build_items()
 
 
 class Sidebar(VerticalScroll):
@@ -68,11 +71,37 @@ class Sidebar(VerticalScroll):
     #=========================================================
     def compose(self) -> ComposeResult:
         yield Static("Skills & Plans", id="sidebar-title")
-        for key, label in ITEMS:
+        for key, label in _build_items():
             on = self._flags.get(key, True)
             with Horizontal(classes="toggle-row"):
                 yield Static(f" {label}", classes="toggle-label")
                 yield Switch(value=on, id=f"sw-{key}", animate=False)
+
+    #=========================================================
+    #.       重建侧边栏（重新扫描 tools/ → 更新开关列表）
+    #=========================================================
+    async def rebuild(self) -> None:
+        """重新扫描 tools/ 目录，更新开关列表并刷新 UI。"""
+        import importlib
+        import utils.tool_scanner
+        import tui.feature_flags
+        importlib.reload(utils.tool_scanner)
+        importlib.reload(tui.feature_flags)
+        from tui.feature_flags import load_flags
+        self._flags = load_flags()
+        await self.remove_children()
+
+        # 构建所有子控件（不能调 compose()，因为 mount_all 不支持 with 上下文管理器）
+        widgets: list = [Static("Skills & Plans", id="sidebar-title")]
+        for key, label in _build_items():
+            on = self._flags.get(key, True)
+            row = Horizontal(
+                Static(f" {label}", classes="toggle-label"),
+                Switch(value=on, id=f"sw-{key}", animate=False),
+                classes="toggle-row",
+            )
+            widgets.append(row)
+        await self.mount_all(widgets)
 
     #=========================================================
     #.       Switch 切换时立即写入 feature_flags.json

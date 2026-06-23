@@ -36,7 +36,11 @@ def _build_defaults():
     for t in scan_tools():
         for key, _label in t.switches:
             d[key] = True
-    d["morning_push"] = True
+    try:
+        import tools.schooldays  # noqa: F401
+        d["morning_push"] = True
+    except ImportError:
+        pass
     return d
 
 

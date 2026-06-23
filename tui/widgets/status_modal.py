@@ -1,16 +1,18 @@
 #=======================================================================================
-#.       tui/widgets/status_modal.py — 系统资源占用状态界面
+#.       tui/widgets/status_modal.py — 系统资源占用与工具列表状态界面
 #.
-#.       实时显示 CPU 占用率、内存使用量、功耗。
-#.       每 1 秒自动刷新，Esc 关闭。
+#.       左侧实时显示 CPU 占用率、内存使用量、功耗，每 1 秒自动刷新。
+#.       右侧列出 tools_list（Premium）和 toolsp_list（Normal）的工具函数。
+#.       Esc 关闭。
 #=======================================================================================
 
 from textual.app import ComposeResult
-from textual.containers import VerticalScroll, Horizontal
+from textual.containers import VerticalScroll, Horizontal, Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Static, Button
 
 from utils.system_stats import get_cpu_percent, get_memory_mb, get_power_breakdown
+from core.gemini_setup import tools_list, toolsp_list
 
 
 class StatusModal(ModalScreen):
@@ -23,12 +25,13 @@ class StatusModal(ModalScreen):
         align: center middle;
     }
     #status-dialog {
-        width: 56;
+        width: 120;
         height: auto;
-        max-height: 50%;
+        max-height: 70%;
         border: thick $primary;
         background: $surface;
         padding: 1 2;
+        overflow: hidden hidden;
     }
     #status-title {
         text-align: center;
@@ -37,10 +40,24 @@ class StatusModal(ModalScreen):
         color: $text;
         text-style: bold;
     }
-    #status-body {
-        height: auto;
+    #status-main {
+        height: 1fr;
         margin: 1 0;
-        padding: 0 2;
+    }
+    #status-left {
+        width: 1fr;
+        height: 100%;
+        border-right: solid $primary-darken-2;
+        padding: 0 1;
+    }
+    #status-right {
+        width: 2fr;
+        height: 100%;
+        padding: 0 1;
+    }
+    #status-left-title, #status-right-title {
+        text-style: bold underline;
+        padding-bottom: 1;
     }
     #status-close {
         dock: bottom;
@@ -54,16 +71,24 @@ class StatusModal(ModalScreen):
         self._timer = None
 
     def compose(self) -> ComposeResult:
-        with VerticalScroll(id="status-dialog"):
-            yield Static("📊 系统资源占用", id="status-title")
-            yield Static(self._build_stats(), id="status-body")
+        with Vertical(id="status-dialog"):
+            yield Static("当前系统状态", id="status-title")
+            with Horizontal(id="status-main"):
+                with Vertical(id="status-left"):
+                    yield Static("系统资源", id="status-left-title")
+                    with VerticalScroll(id="status-left-scroll"):
+                        yield Static(self._build_stats(), id="status-left-body")
+                with Vertical(id="status-right"):
+                    yield Static("工具列表", id="status-right-title")
+                    with VerticalScroll(id="status-right-scroll"):
+                        yield Static(self._build_tools_text(), id="status-right-body")
             with Horizontal(id="status-close"):
                 yield Button("Close (Esc)", id="status-close-btn")
 
     def on_mount(self) -> None:
-        #.       初始化 psutil CPU 计数器（首次调用返回 0.0）。
+        # 初始化 psutil CPU 计数器（首次调用返回 0.0）。
         get_cpu_percent()
-        #.       每 1s 刷新一次。
+        # 每 1s 刷新左侧状态。
         self._timer = self.set_interval(1.0, self._refresh)
 
     def on_unmount(self) -> None:
@@ -71,7 +96,7 @@ class StatusModal(ModalScreen):
             self._timer.stop()
 
     #=============================================================
-    #.       构建状态文本
+    #.       构建系统状态文本（左栏）
     #=============================================================
     def _build_stats(self) -> str:
         B = 16  # bar width
@@ -121,6 +146,24 @@ class StatusModal(ModalScreen):
         return "\n".join(lines)
 
     #=============================================================
+    #.       构建工具列表文本（右栏）
+    #=============================================================
+    def _build_tools_text(self) -> str:
+        lines = []
+
+        lines.append("[bold cyan]Premium (tools_list):[/bold cyan]")
+        for i, fn in enumerate(tools_list, 1):
+            mod = getattr(fn, '__module__', '?').split('.')[-1]
+            lines.append(f"  {i}. [green]{fn.__name__}[/green] [dim]({mod})[/dim]")
+        lines.append("=" * 70)
+        lines.append("[bold magenta]Normal (toolsp_list):[/bold magenta]")
+        for i, fn in enumerate(toolsp_list, 1):
+            mod = getattr(fn, '__module__', '?').split('.')[-1]
+            lines.append(f"  {i}. [green]{fn.__name__}[/green] [dim]({mod})[/dim]")
+
+        return "\n".join(lines)
+
+    #=============================================================
     #.       进度条绘制（纯文本 Unicode block + Rich 显式标签）
     #=============================================================
     @staticmethod
@@ -137,10 +180,10 @@ class StatusModal(ModalScreen):
             return f"[red]{bar}[/red]"
 
     #=============================================================
-    #.       定时刷新
+    #.       定时刷新左侧
     #=============================================================
     def _refresh(self) -> None:
-        body = self.query_one("#status-body")
+        body = self.query_one("#status-left-body")
         body.update(self._build_stats())
 
     #=============================================================

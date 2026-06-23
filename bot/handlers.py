@@ -26,7 +26,7 @@ from telegram.ext import ContextTypes
 # -- 从 bot/session.py 获取会话运行时状态和授权函数
 from bot.session import sessions, save_history, get_chat_session
 # -- 从 core/config.py 获取当前使用的模型类型
-from core.config import MODEL_TYPE
+from core.config import MODEL_TYPE, AFC_MAX_CALLS
 # -- 从 core/gemini_setup.py 获取 Gemini 客户端和工具配置
 from core.gemini_setup import get_gemini_client, tools_list, toolsp_list, safety_settings_off
 # -- 从 utils/identity.py 获取群聊发言者身份标签工具
@@ -34,7 +34,12 @@ from utils.identity import build_identity_tag, tag_message
 # -- 从 utils/helpers.py 获取历史记录裁剪和 typing 动画工具
 from utils.helpers import trim_history, typing_loop
 # -- 从 tools/schooldays.py 获取课表查询函数（供 /class 命令使用）
-from tools.schooldays import fetch_school_schedule
+try:
+    from tools.schooldays import fetch_school_schedule
+    _has_schooldays_handlers = True
+except ImportError:
+    fetch_school_schedule = None
+    _has_schooldays_handlers = False
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +76,10 @@ async def class_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     if not auth_info or auth_info.get("chk") != "T":
         logger.warning(f"/class 被非授权用户调用: chat_id={chat_id}")
         await update.message.reply_text("抱歉，此功能仅限管理员使用。")
+        return
+
+    if fetch_school_schedule is None:
+        await update.message.reply_text("课表功能暂未安装，请通过 TUI Manage 面板下载 schooldays 插件。")
         return
 
     logger.info(f"/class 查询课表: chat_id={chat_id}")
@@ -229,6 +238,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         system_instruction=mode,
                         safety_settings=safety_settings_off,
                         tools=tools_list,
+                        automatic_function_calling=types.AutomaticFunctionCallingConfig(
+                            maximum_remote_calls=AFC_MAX_CALLS
+                        ),
                     )
                 )
             else:
@@ -240,6 +252,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     config=types.GenerateContentConfig(
                         system_instruction=mode,
                         tools=toolsp_list,
+                        automatic_function_calling=types.AutomaticFunctionCallingConfig(
+                            maximum_remote_calls=AFC_MAX_CALLS
+                        ),
                     )
                 )
         finally:
@@ -498,7 +513,9 @@ async def handle_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         system_instruction=mode,
                         safety_settings=safety_settings_off,
                         tools=tools_list,
-                        automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=False),
+                        automatic_function_calling=types.AutomaticFunctionCallingConfig(
+                            maximum_remote_calls=AFC_MAX_CALLS
+                        ),
                     )
                 )
             else:

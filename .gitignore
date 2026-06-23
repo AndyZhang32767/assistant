@@ -11,3 +11,9 @@ data/*.json
 
 # Personal schedule file
 schedule
+
+# Backup directory
+backup/
+
+# Target (previous release copy)
+target/

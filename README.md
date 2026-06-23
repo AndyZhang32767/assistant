@@ -1,50 +1,21 @@
 # Assistant Bot
 
-基于 Telegram + Google Gemini 的多功能 AI 助手，支持插件化工具扩展。
+基于 Telegram + Google Gemini 的多功能 AI 助手，支持插件化工具扩展。私聊和群聊均可用，带 TUI 控制台管理界面。
 
 ## 功能概览
 
-- 私聊 AI 对话（premium 模式，开放全部工具）
-- 群聊 @bot 响应（normal 模式，受限工具集）
-- macOS 系统提醒事项管理
-- 课表查询与每日定时推送
+- 私聊 AI 对话，开放全部工具（提醒、课表、搜索、BT 下载等）
+- 群聊 @bot 响应，受限工具集（时间、课表、搜索、群组备忘）
+- macOS 系统提醒事项管理（增删改查 + 优先级 + 提前提醒）
+- 课表查询 + 每日定时推送
 - DuckDuckGo 网页搜索
 - 群组备忘录
-- BT 下载集成（qBittorrent）
+- BT 下载集成（qBittorrent，支持 magnet 链接和 .torrent 文件）
 - Office 文档转 PDF（LibreOffice）
-- 新用户授权弹窗
-- TUI 控制台配置管理
+- 新用户授权弹窗（Premium / Normal / 拒绝）
+- TUI 控制台：配置编辑、工具管理、功能开关、实时日志
 - 插件系统：`tools/` 目录自动发现与注册
-
-## 快速开始
-
-```bash
-# 1. 安装依赖
-pip install -r requirements.txt
-
-# 2. 编辑 core/config.py，填入你的 Telegram Token、Gemini API Key 等配置
-
-# 3. 启动
-python3 run.py          # 命令行模式（阻塞 polling）
-python3 tui_run.py      # TUI 控制台模式（推荐）
-```
-
-## 配置
-
-编辑 [core/config.py](core/config.py) 中的以下变量：
-
-| 变量 | 说明 | 示例 |
-|------|------|------|
-| `TELEGRAM_TOKEN` | Telegram Bot Token | 从 @BotFather 获取 |
-| `GEMINI_API_KEY` | Google Gemini API 密钥 | 从 aistudio.google.com 获取 |
-| `MODEL_TYPE` | Gemini 模型 | `gemini-3.1-flash-lite-preview` |
-| `ADMIN_ID` | 管理员 Telegram 用户 ID（整数） | `123456789` |
-| `PROXY_URL` | HTTP 代理（可选，留空不启用） | `http://127.0.0.1:10808` |
-| `BOT_NAME` | 群聊中唤起 Bot 的关键词 | `助手` |
-| `PRIVATE_INSTRUCTION` | 私聊 System Prompt | 定义角色和行为 |
-| `PUBLIC_INSTRUCTION` | 群聊 System Prompt | 定义群聊角色和行为 |
-
-Tools 参数（如 qBittorrent 连接信息、课表推送时间）编辑对应 `tools/*.py` 中的 `#==CONFIG==` 段，或通过 TUI 的 Tools 菜单编辑。
+- 远程工具下载（从 GitHub 仓库拉取安装新工具）
 
 ## 架构
 
@@ -75,6 +46,7 @@ assistant/
 │       ├── sidebar.py        # 侧边栏（状态/开关）
 │       ├── config_modal.py   # 配置编辑弹窗
 │       ├── tools_modal.py    # Tools 参数编辑
+│       ├── manage_modal.py   # 工具管理（远程下载/删除）
 │       ├── auth_modal.py     # 新用户授权弹窗
 │       ├── history_modal.py  # 对话历史查看
 │       ├── schedule_modal.py # 课表查看
@@ -92,6 +64,38 @@ assistant/
 └── tui_run.py            # TUI 控制台启动入口
 ```
 
+## 快速开始
+
+```bash
+# 1. 安装依赖
+pip install -r requirements.txt
+
+# 2. 编辑 core/config.py，填入你的 TELEGRAM_TOKEN、GEMINI_API_KEY 等配置
+
+# 3. 启动
+python3 run.py          # 命令行模式（阻塞 polling）
+python3 tui_run.py      # TUI 控制台模式（推荐）
+```
+
+## 配置
+
+编辑 [core/config.py](core/config.py) 中的以下变量：
+
+| 变量 | 说明 | 示例 |
+|------|------|------|
+| `TELEGRAM_TOKEN` | Telegram Bot Token | 从 @BotFather 获取 |
+| `GEMINI_API_KEY` | Google Gemini API 密钥 | 从 aistudio.google.com 获取 |
+| `MODEL_TYPE` | Gemini 模型 | `gemini-3.1-flash-lite-preview` |
+| `AFC_MAX_CALLS` | 自动函数调用最大轮次 | `20` |
+| `ADMIN_ID` | 管理员 Telegram 用户 ID | `123456789` |
+| `PROXY_URL` | HTTP 代理（可选） | `http://127.0.0.1:10808` |
+| `BOT_NAME` | 群聊中唤起 Bot 的关键词 | `助手` |
+| `PRIVATE_INSTRUCTION` | 私聊 System Prompt | 定义角色和行为 |
+| `PUBLIC_INSTRUCTION` | 群聊 System Prompt | 定义群聊角色和行为 |
+| `CUSTOM_SEARCH_API` | Google Custom Search API（备用） | 可选 |
+
+Tools 参数（如 qBittorrent 连接信息、课表推送时间）编辑对应 `tools/*.py` 中的 `#==CONFIG==` 段，或通过 TUI 的 Tools 菜单编辑。
+
 ## TUI 控制台
 
 TUI 模式基于 [Textual](https://textual.textualize.io/) 框架，提供实时配置管理界面。
@@ -107,12 +111,14 @@ TUI 模式基于 [Textual](https://textual.textualize.io/) 框架，提供实时
 | 键 | 功能 |
 |---|------|
 | `c` | 打开配置编辑（config.py 变量） |
-| `t` | 打开 Tools 参数管理 |
+| `t` | 打开 Tools 参数管理（各工具的 `#==CONFIG==` 段） |
+| `m` | 工具管理（远程下载 / 删除已安装工具） |
 | `h` | 查看会话历史 |
-| `s` | 保存配置到文件 |
+| `s` | 查看课表 |
+| `p` | 系统状态（CPU、内存、电源） |
+| `Ctrl+S` | 保存配置到文件 |
 | `r` | 重启 Bot |
 | `q` | 退出 |
-| `Ctrl+L` | 查看完整日志 |
 
 ### 功能开关
 
@@ -123,7 +129,6 @@ TUI 模式基于 [Textual](https://textual.textualize.io/) 框架，提供实时
 - 文件附件支持（`file_attachment`）
 - Office 转 PDF（`office_to_pdf`）
 - 早间课表推送（`morning_push`）
-- 更多…
 
 ## 命令
 
@@ -144,19 +149,29 @@ Bot 在 Telegram 中支持以下命令：
 
 授权信息持久化到 `data/sessions_data.json`，黑名单单独存储。
 
-## 插件系统
-
-`tools/` 目录下的 `.py` 文件会被自动发现和注册，无需修改核心代码。
-
-每个 tool 文件通过 `#==TOOL==` 头部声明元信息，可选 `#==CONFIG==` 段声明用户可配置参数。详见 [tools.md](tools.md)。
-
 ## 定时任务
 
 通过 `utils/scheduler.py` 注册定时任务，精度 10 秒。当前内置任务：
 
-- **课表推送**：每日指定时间向 premium 用户推送当日课表
-- **qBittorrent 轮询**：定时检查 BT 下载状态，完成后自动打包通知
-- **主调度器**：每 10 秒检查一次待执行任务队列
+| 任务 | 说明 |
+|------|------|
+| 课表推送 | 每日指定时间向 premium 用户推送当日课表（需开启 `morning_push` 开关） |
+| qBittorrent 轮询 | 定时检查 BT 下载状态，完成后自动打包发送到 Telegram |
+| 主调度器 | 每 10 秒检查一次待执行任务队列 |
+
+## 工具管理
+
+TUI 中按 `m` 打开工具管理界面，可：
+- **左侧**：查看已安装工具，Delete 键删除
+- **右侧**：从 GitHub 仓库拉取可用工具列表，Enter 下载安装
+
+工具文件存储在 `tools/` 目录下，删除后需重启生效。
+
+## 插件系统
+
+`tools/` 目录下的 `.py` 文件会被自动发现和注册。每个文件通过 `#==TOOL==` 头部声明元信息，可选 `#==CONFIG==` 段声明用户可配置参数。
+
+详细文档见 [tools.md](tools.md)。
 
 ## 系统依赖（可选）
 
