@@ -176,7 +176,21 @@ def _try_parse_variable(lines: list[str], start: int) -> Var | None:
         return Var(name=name, value=value, line_start=start + 1, line_end=end,
                    is_multiline=True, indent=indent)
 
-    # 情况 B：三引号字符串在同一行闭合
+    # 情况 A2：多行字符串 — """ 单独一行，内容从下一行开始（如 NAME = """）
+    if value.strip() == '"""':
+        full_value = ""
+        end = start + 1
+        while end < len(lines):
+            if '"""' in lines[end]:
+                break
+            full_value += lines[end]
+            end += 1
+        value = full_value.rstrip()
+        end += 1
+        return Var(name=name, value=value, line_start=start + 1, line_end=end,
+                   is_multiline=True, indent=indent)
+
+    # 情况 B：三引号字符串在同一行闭合（如 NAME = """one liner"""）
     if value.strip().startswith('"""') and '"""' in value[3:]:
         raw = value.strip()
         raw = raw[3:]
@@ -245,8 +259,14 @@ def write_config(filepath: str, sections: list[Section]) -> None:
                 var = var_map[name]
                 indent = m.group(1)
                 if var.is_multiline:
-                    # 多行字符串：写入 NAME = """value"""
-                    result.append(f'{indent}{name} = """{var.value}"""\n')
+                    # 多行字符串：保留多行格式，含换行时展开
+                    if '\n' in var.value:
+                        result.append(f'{indent}{name} = """\n')
+                        for content_line in var.value.split('\n'):
+                            result.append(f'{content_line}\n')
+                        result.append(f'"""\n')
+                    else:
+                        result.append(f'{indent}{name} = """{var.value}"""\n')
                     # 跳过原文件中的多行内容（直到包含 """ 的行）
                     i_line += 1
                     while i_line < len(lines) and '"""' not in lines[i_line]:
