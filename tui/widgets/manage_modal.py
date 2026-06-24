@@ -78,7 +78,7 @@ class DeleteConfirm(ModalScreen[bool]):
             yield Static(f"确定要删除工具 [bold red]{self._tool_name}[/bold red] 吗？\n该操作不可撤销。", id="del-body")
             with Horizontal(id="del-buttons"):
                 yield Button(" 确认删除 ", id="btn-del-confirm", variant="error")
-                yield Button(" 取消 ", id="btn-del-cancel")
+                yield Button(" 取消 ", id="btn-del-cancel", classes="cancel-btn")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "btn-del-confirm":
@@ -220,9 +220,9 @@ class ManageModal(ModalScreen[str | None]):
                         yield ListView(id="manage-remote-list")
             with Horizontal(id="manage-footer"):
                 yield Button(" Delete ", id="btn-current-del", variant="error")
-                yield Button(" Download ", id="btn-remote-dl")
-                yield Button(" Refresh ", id="btn-avail-refresh")
-                yield Button(" Cancel ", id="btn-modal-cancel")
+                yield Button(" Download ", id="btn-remote-dl", classes="cancel-btn")
+                yield Button(" Refresh ", id="btn-avail-refresh", classes="cancel-btn")
+                yield Button(" Cancel ", id="btn-modal-cancel", classes="cancel-btn")
 
     #===================================================================================
     #.       挂载 — 壳淡入 → 替换为真实 dialog

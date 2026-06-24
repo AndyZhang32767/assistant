@@ -190,7 +190,7 @@ def _try_parse_variable(lines: list[str], start: int) -> Var | None:
         return Var(name=name, value=value, line_start=start + 1, line_end=end,
                    is_multiline=True, indent=indent)
 
-    # 情况 B：三引号字符串在同一行闭合（如 NAME = """one liner"""）
+    # 情况 B：三引号字符串在同一行闭合
     if value.strip().startswith('"""') and '"""' in value[3:]:
         raw = value.strip()
         raw = raw[3:]
@@ -259,7 +259,6 @@ def write_config(filepath: str, sections: list[Section]) -> None:
                 var = var_map[name]
                 indent = m.group(1)
                 if var.is_multiline:
-                    # 多行字符串：保留多行格式，含换行时展开
                     if '\n' in var.value:
                         result.append(f'{indent}{name} = """\n')
                         for content_line in var.value.split('\n'):
@@ -267,7 +266,6 @@ def write_config(filepath: str, sections: list[Section]) -> None:
                         result.append(f'"""\n')
                     else:
                         result.append(f'{indent}{name} = """{var.value}"""\n')
-                    # 跳过原文件中的多行内容（直到包含 """ 的行）
                     i_line += 1
                     while i_line < len(lines) and '"""' not in lines[i_line]:
                         i_line += 1

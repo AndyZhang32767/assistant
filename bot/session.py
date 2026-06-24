@@ -4,9 +4,8 @@
 #.       管理所有与用户会话相关的运行时状态和持久化：
 #.         1. sessions 字典 — 内存中的用户授权信息 {chat_id: {mode, chk, ...}}
 #.         2. save_history 字典 — 内存中的对话历史 {chat_id: [types.Content, ...]}
-#.         3. denied_ids 集合 — 已被拒绝的用户黑名单
-#.         4. 新用户授权 — get_chat_session() 通过 TUI 弹窗或 console input 获取授权
-#.         5. 持久化 — 将以上数据读写到 data/ 目录下的 JSON 文件
+#.         3. 新用户授权 — get_chat_session() 通过 TUI 弹窗或 console input 获取授权
+#.         4. 持久化 — 将以上数据读写到 data/ 目录下的 JSON 文件
 #.
 #.       被 bot/main.py 加载/保存，被 bot/handlers.py 每条消息调用。
 #=======================================================================================
@@ -24,24 +23,20 @@ logger = logging.getLogger(__name__)
 #=======================================================================================
 #.       持久化文件路径
 #.       HISTORY_FILE — 对话历史 JSON（只保存文本部分，跳过二进制 blob）
-#.       DENIED_FILE  — 黑名单 JSON
+#.       sessions 中 chk="D" 表示被 Ban 的用户
 #=======================================================================================
 HISTORY_FILE = os.path.join(os.path.dirname(SESSION_FILE), "history.json")
-DENIED_FILE  = os.path.join(os.path.dirname(SESSION_FILE), "denied.json")
 
 #=======================================================================================
 #.       模块级运行时状态（内存中）
 #.
-#.       sessions     — {chat_id: {"mode": <System Prompt 字符串>,
-#.                                  "chk": "T"(premium) / "F"(normal),
-#.                                  "session": None,
-#.                                  "creation": "false"}}
+#.       sessions     — {user_id: {"chk": "T"|"F"|"D", "name": str}}
+#.                       mode 由 chk 运行时查 config 生成，不持久化
 #.       save_history — {chat_id: [types.Content, ...]}  对话历史（Gemini 格式）
 #.       denied_ids   — {int, ...}  已被拒绝授权的用户 chat_id 集合
 #=======================================================================================
 sessions = {}
 save_history = {}
-denied_ids = set()
 
 
 #=======================================================================================
@@ -70,41 +65,15 @@ def load_sessions() -> None:
             with open(SESSION_FILE, 'r') as f:
                 loaded = json.load(f)
             for k, v in loaded.items():
-                sessions[int(k)] = v
+                # 迁移：只保留 chk + name，丢弃旧格式的 mode/session/creation
+                sessions[int(k)] = {
+                    "chk": v.get("chk", "F"),
+                    "name": v.get("name", f"ID: {k}"),
+                }
             logger.info(f"已恢复 {len(sessions)} 个历史会话。")
         except Exception as e:
             logger.error(f"加载 sessions 失败: {e}")
             sessions.clear()
-
-
-#=======================================================================================
-#.       黑名单持久化 — 读写 denied_ids 集合到 JSON 文件
-#=======================================================================================
-
-#=============================================================
-#.       将内存中的 denied_ids 集合异步写入 JSON 文件
-#=============================================================
-async def persist_denied():
-    def _save():
-        with open(DENIED_FILE, 'w') as f:
-            json.dump(sorted(denied_ids), f)
-    await asyncio.to_thread(_save)
-
-
-#=============================================================
-#.       从 JSON 文件恢复 denied_ids 集合到内存
-#=============================================================
-def load_denied() -> None:
-    denied_ids.clear()
-    if os.path.exists(DENIED_FILE):
-        try:
-            with open(DENIED_FILE, 'r') as f:
-                for uid in json.load(f):
-                    denied_ids.add(int(uid))
-            logger.info(f"已恢复 {len(denied_ids)} 个黑名单。")
-        except Exception as e:
-            logger.error(f"加载黑名单失败: {e}")
-            denied_ids.clear()
 
 
 #=======================================================================================
@@ -184,6 +153,29 @@ def set_auth_callback(cb):
     _auth_callback = cb
 
 
+# -- _confirm_callback → 消息发送前的确认弹窗回调
+_confirm_callback = None
+
+
+def set_confirm_callback(cb):
+    """TUI 注入发送确认弹窗回调。cb(text, chat_id) → 返回确认后的文本或 None。"""
+    global _confirm_callback
+    _confirm_callback = cb
+
+
+async def confirm_send(text: str, chk: str, chat_id: int) -> str | None:
+    """根据 confirm_mode 和用户 chk 决定是否需要确认。返回文本或 None。"""
+    from tui.widgets.permission_modal import get_confirm_mode
+    mode = get_confirm_mode()
+    if mode == "off":
+        return text
+    if mode == "public" and chk == "T":
+        return text
+    if _confirm_callback:
+        return await _confirm_callback(text, chat_id)
+    return text
+
+
 #=============================================================
 #.       get_chat_session() — 获取或创建用户会话（授权入口）
 #.
@@ -199,58 +191,69 @@ def set_auth_callback(cb):
 #.
 #.       返回：sessions[chat_id] dict 或 None（被拒绝）
 #=============================================================
-async def get_chat_session(chat_id: int, chat_name: str, chat_type: str):
-    # 1. 已授权用户直接返回
-    if chat_id in sessions:
-        return sessions[chat_id]
+async def get_chat_session(chat_id: int, chat_name: str, chat_type: str,
+                           sender_id: int = None, sender_name: str = None):
+    #.       获取或创建用户会话。
+    #.       权限以个人（sender_id）为单位，群聊中每个成员独立授权。
+    #.       history 仍以 chat_id 为单位（群友共享上下文）。
+    #.
+    #.       私聊时 sender_id == chat_id。
+    #.       群聊时 sender_id 是发言者 ID，chat_id 是群组 ID。
+    #.
+    # 统一用 sender_id 做权限 key（私聊时 = chat_id）
+    auth_id = sender_id if sender_id else chat_id
+    display_name = sender_name or chat_name
 
-    # 2. 黑名单用户直接拒绝
-    if chat_id in denied_ids:
-        logger.info(f"拦截已拒绝 ID: {chat_id} ({chat_name})")
-        return None
+    def _with_mode(info: dict) -> dict:
+        """运行时注入 mode（不持久化），保持 sessions 精简。"""
+        result = dict(info)
+        chk = info.get("chk", "F")
+        result["mode"] = PRIVATE_INSTRUCTION if chk == "T" else PUBLIC_INSTRUCTION
+        return result
+
+    # 1. 已在 sessions 中 — 检查是否被 ban
+    if auth_id in sessions:
+        if sessions[auth_id].get("chk") == "D":
+            logger.info(f"拦截已拒绝 ID: {auth_id} ({display_name})")
+            return None
+        return _with_mode(sessions[auth_id])
 
     # 3. 新用户 — 输出日志等待管理员决定
+    context = f"{chat_name}(群聊)" if chat_type != "private" else "私聊"
     logger.info("=" * 20)
-    logger.info(f"[新请求] chat_id={chat_id} | 名称={chat_name} | 类型={chat_type}")
+    logger.info(f"[新请求] user_id={auth_id} | 名称={display_name} | 来源={context}")
     logger.info("=" * 20)
 
     try:
         if _auth_callback is not None:
-            # TUI 模式：通过弹窗获取管理员选择（由 tui/app.py 注入）
-            choice = await _auth_callback(chat_id, chat_name, chat_type)
+            # TUI 模式：弹窗显示 sender 信息 + 群组上下文
+            choice = await _auth_callback(auth_id, display_name, chat_type,
+                                          chat_id if chat_type != "private" else None,
+                                          chat_name if chat_type != "private" else None)
         else:
             # 命令行模式：阻塞等待 console input
             choice = await asyncio.to_thread(input, "[pr=私聊 / pb=群聊 / n=拒绝]: ")
             choice = choice.lower().strip()
 
         if choice == 'pr':
-            # Premium 模式：分配私聊 System Prompt，开放全部工具
-            selected_instruction = PRIVATE_INSTRUCTION
             mode_label = "私聊(premium)"
             chk = "T"
         elif choice == 'pb':
-            # Normal 模式：分配群聊 System Prompt，限制工具集
-            selected_instruction = PUBLIC_INSTRUCTION
             mode_label = "群聊(普通)"
             chk = "F"
         else:
-            # 拒绝：加入黑名单并持久化
-            logger.warning(f"[拒绝] chat_id={chat_id} ({chat_name})")
-            denied_ids.add(chat_id)
-            await persist_denied()
+            logger.warning(f"[拒绝] user_id={auth_id} ({display_name})")
+            sessions[auth_id] = {"chk": "D", "name": display_name}
+            await persist_sessions()
             return None
 
-        # 创建会话条目并持久化
-        sessions[chat_id] = {
-            "session":  None,
-            "mode":     selected_instruction,
-            "creation": "false",
-            "chk":      chk,
-        }
-        save_history[chat_id] = []
+        sessions[auth_id] = {"chk": chk, "name": display_name}
+        # history 仍按 chat_id 存储（群聊共享上下文）
+        if chat_id not in save_history:
+            save_history[chat_id] = []
         await persist_sessions()
-        logger.info(f"[授权] chat_id={chat_id} ({chat_name}) -> 模式={mode_label}")
-        return sessions[chat_id]
+        logger.info(f"[授权] user_id={auth_id} ({display_name}) -> 模式={mode_label}")
+        return _with_mode(sessions[auth_id])
 
     except Exception as e:
         logger.error(f"审核过程异常: {e}")

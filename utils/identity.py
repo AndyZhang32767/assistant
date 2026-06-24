@@ -32,8 +32,8 @@ def build_identity_tag(sender_id: int, sender_name: str, chat_type: str) -> str:
     if chat_type == "private":
         return ""
     if sender_id == ADMIN_ID:
-        return f"[发言者: Admin, user_id={sender_id}]"
-    return f"[发言者: {sender_name}, user_id={sender_id}, 非Admin]"
+        return f"[User: {sender_name} | ID: {sender_id} | Role: Admin]"
+    return f"[User: {sender_name} | ID: {sender_id}]"
 
 
 #=============================================================

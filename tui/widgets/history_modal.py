@@ -102,8 +102,8 @@ class HistoryList(ModalScreen):
 
     def __init__(self):
         super().__init__()
-        from bot.session import sessions
-        self._sessions = list(sessions.items())
+        from bot.session import save_history
+        self._history_items = list(save_history.items())
 
     #===================================================================================
     #.       界面构建
@@ -117,14 +117,13 @@ class HistoryList(ModalScreen):
         with VerticalScroll(id="history-dialog"):
             yield Static("Chat History — 会话列表", id="history-title")
             with VerticalScroll(id="history-body"):
-                if not self._sessions:
-                    yield Static("暂无活跃会话")
-                for chat_id, info in self._sessions:
-                    chk = info.get("chk", "?")
-                    label = f"[{'premium' if chk == 'T' else 'normal'}] chat_id={chat_id}"
-                    yield Button(label, id=f"hist-{chat_id}")
+                if not self._history_items:
+                    yield Static("暂无会话历史")
+                for chat_id, contents in self._history_items:
+                    label = f"Chat {chat_id} — {len(contents)} 条消息"
+                    yield Button(label, id=f"hist-{chat_id}", classes="cancel-btn")
             with Horizontal(id="history-close"):
-                yield Button("Close", id="hist-close")
+                yield Button("Close", id="hist-close", classes="cancel-btn")
 
     #===================================================================================
     #.       动画
@@ -245,19 +244,15 @@ class ChatHistoryView(ModalScreen):
     #===================================================================================
 
     def compose(self) -> ComposeResult:
-        from bot.session import sessions, save_history
-        info = sessions.get(self._chat_id, {})
+        from bot.session import save_history
         history = save_history.get(self._chat_id, [])
-
-        chk = info.get("chk", "?")
-        mode = "premium" if chk == "T" else "normal"
 
         # -- Fade 空壳
         yield VerticalScroll(id="chatview-shell")
 
         # -- 真实 dialog
         with VerticalScroll(id="chatview-dialog"):
-            yield Static(f"Chat {self._chat_id} ({mode}) — 共 {len(history)} 条", id="chatview-title")
+            yield Static(f"Chat {self._chat_id} — 共 {len(history)} 条消息", id="chatview-title")
             with VerticalScroll(id="chatview-body"):
                 if not history:
                     yield Static("暂无历史记录")
@@ -272,7 +267,7 @@ class ChatHistoryView(ModalScreen):
                     color = "$accent" if role == "model" else "$text"
                     yield Static(f"[{color}][{i}] [{role}] {text}[/{color}]")
             with Horizontal(id="chatview-close"):
-                yield Button("Back", id="chatview-back")
+                yield Button("Back", id="chatview-back", classes="cancel-btn")
                 yield Button("Clear", id="chatview-clear", variant="error")
 
     #===================================================================================

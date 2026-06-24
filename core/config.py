@@ -9,7 +9,7 @@ import os
 #=================================================================
 #.       VERSION — 版本号标识（只读，不可通过 TUI 修改）
 #=================================================================
-VERSION = "7.0"
+VERSION = "8.0"
 SETUP = True
 
 # -- TELEGRAM_TOKEN → bot/main.py create_application() 构建 Telegram Application 时使用
@@ -31,7 +31,7 @@ GEMINI_API_KEY = ""
 #.       MODEL_TYPE — Gemini 模型选择
 #.       可切换为其他模型（如 gemini-2.0-flash 等）
 #=====================================================================================================
-MODEL_TYPE = "gemini-3.1-flash-lite-preview"
+MODEL_TYPE = "gemini-3.1-flash-lite"
 
 # -- AFC_MAX_CALLS → bot/handlers.py GenerateContentConfig 中控制自动函数调用的最大轮次
 #=====================================================================================================
@@ -64,6 +64,10 @@ ADMIN_ID = 0
 #===================================================================================================
 PROXY_URL = ""
 
+# -- LOG_MAX_LINES → tui/widgets/log_panel.py 日志面板最大行数，超限自动清屏
+#====================================================================
+LOG_MAX_LINES = 2000
+
 # -- BOT_NAME → 定义bot在群组中被唤起的名称 bot/handler.py 调用触发关键词
 #==================================
 #.       只在pb分类中使用
@@ -85,10 +89,12 @@ PRIVATE_INSTRUCTION = """
 - 查询课表（fetch_school_schedule）
 - 搜索网页（web_search）
 - 管理 BT 下载（add_qbittorrent_download / fetch_qb_status）
+- 查看桌面窗口（list_windows / capture_window）
 - 涉及时间和提醒时，先调用 get_current_system_time 确认当前时间
 - 需要最新信息或验证事实时，使用 web_search
 - 遇到 magnet 磁力链或 BT 种子时，用 add_qbittorrent_download 添加下载任务
 - 询问下载进度时，用 fetch_qb_status 查询
+- 需要查看桌面窗口内容时，用 list_windows 列出窗口，再用 capture_window 截图分析
 - 若单次请求难以达成目的，可以多次反复调用 tools 实现目的
 - 回复使用纯文本，不支持 Markdown 格式化
 - 回应简洁清晰，优先关注最新消息
@@ -111,6 +117,6 @@ PUBLIC_INSTRUCTION = """
 - 需要最新信息时，使用 web_search
 - 回复使用纯文本，不支持 Markdown 格式化
 - 保持友善幽默，但拒绝越界的请求，不透露他人隐私
-- 若单次请求难以达成目的，可以多次反复调用 tools 实现目的
+- 每条消息前的 [User: 名称 | ID: xxx] 是发言者身份标签，须据此区分说话人
 - 课表等信息仅在管理员请求时提供
 - 在生成提醒事项前，先用get_current_system_time 来确定准确的时间"""

@@ -24,9 +24,9 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 # -- 从 bot/session.py 获取会话运行时状态和授权函数
-from bot.session import sessions, save_history, get_chat_session
+from bot.session import sessions, save_history, get_chat_session, confirm_send
 # -- 从 core/config.py 获取当前使用的模型类型
-from core.config import MODEL_TYPE, AFC_MAX_CALLS
+from core.config import MODEL_TYPE, AFC_MAX_CALLS, BOT_NAME
 # -- 从 core/gemini_setup.py 获取 Gemini 客户端和工具配置
 from core.gemini_setup import get_gemini_client, tools_list, toolsp_list, safety_settings_off
 # -- 从 utils/identity.py 获取群聊发言者身份标签工具
@@ -71,10 +71,12 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 #=============================================================
 async def class_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat_id = update.effective_chat.id
-    auth_info = sessions.get(chat_id)
+    sender = update.effective_user
+    sender_id = sender.id if sender else chat_id
+    auth_info = sessions.get(sender_id)
 
     if not auth_info or auth_info.get("chk") != "T":
-        logger.warning(f"/class 被非授权用户调用: chat_id={chat_id}")
+        logger.warning(f"/class 被非授权用户调用: sender_id={sender_id}")
         await update.message.reply_text("抱歉，此功能仅限管理员使用。")
         return
 
@@ -94,10 +96,12 @@ async def class_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 #=============================================================
 async def clear_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat_id = update.effective_chat.id
-    auth_info = sessions.get(chat_id)
+    sender = update.effective_user
+    sender_id = sender.id if sender else chat_id
+    auth_info = sessions.get(sender_id)
 
     if auth_info is None:
-        logger.warning(f"/clear 被未授权用户调用: chat_id={chat_id}")
+        logger.warning(f"/clear 被未授权用户调用: sender_id={sender_id}")
         await update.message.reply_text("抱歉，你还没有获得使用权限哦。")
         return
 
@@ -131,6 +135,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     #.         7. 已触发 → 写入 history → 调用 Gemini API → 回复用户 → 将回复写入 history
     #.
     # 1. 获取聊天基本信息
+    if not update.message or not update.message.text:
+        return
+
     chat_obj = update.effective_chat
     chat_id = chat_obj.id
     chat_name = chat_obj.full_name or chat_obj.title
@@ -142,8 +149,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     sender_name = (sender.full_name if sender else None) or chat_name
 
     contents = update.message.text
-    if not contents:
-        return
 
     # -- qbittorrent magnet link 检测：命中则直接添加下载，跳过 Gemini
     magnet_pattern = r'magnet:\?xt=urn:btih:[a-zA-Z0-9]{32,40}'
@@ -162,7 +167,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if chat_type == "private":
         is_triggered = True
     else:
-        from core.config import BOT_NAME
         # 方式 A: @bot_username mention entity
         if update.message.entities:
             for entity in update.message.entities:
@@ -172,20 +176,19 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         contents = update.message.text[entity.offset + entity.length:].strip()
                         is_triggered = True
                         break
-        # 方式 B: 消息中包含 BOT_NAME 关键词（如 "助手 帮我..."）
+        # 方式 B: 消息中包含 BOT_NAME 关键词（如 "助手"）
         if not is_triggered and contents and BOT_NAME in contents:
-            contents = contents.replace(BOT_NAME, '', 1).strip()
             is_triggered = True
         if not contents:
             return
 
-    logger.info(f"[消息] {'触发' if is_triggered else '监听'} | chat_id={chat_id} | sender={sender_name}(uid={sender_id}) | 内容={contents[:50]}")
+    logger.info(f"[消息] {'触发' if is_triggered else '监听'} | chat_id={chat_id} | sender={sender_name}(uid={sender_id}) | 内容={contents}")
 
     # 3. 获取/初始化会话 — get_chat_session() 位于 bot/session.py
     #    首次访问的用户会触发 TUI 弹窗（或 console input）进行授权选择
-    auth_info = await get_chat_session(chat_id, chat_name, chat_type)
+    auth_info = await get_chat_session(chat_id, chat_name, chat_type, sender_id, sender_name)
     if auth_info is None:
-        logger.info(f"[拦截] 黑名单 chat_id={chat_id}")
+        logger.info(f"[拦截] 黑名单 sender_id={sender_id}")
         if is_triggered:
             await update.message.reply_text("啊这，不认识喵(")
         return
@@ -206,7 +209,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ))
         history = trim_history(history)
         save_history[chat_id] = history
-        logger.debug(f"[监听] 写入 history, 当前长度={len(history)}")
+        logger.info(f"[监听] 写入 history, 当前长度={len(history)}")
         return
 
     # 6. 已触发：写入用户消息到 history，裁剪后准备调用 Gemini
@@ -274,7 +277,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ))
             save_history[chat_id] = history
             logger.info(f"[回复] chat_id={chat_id} | 长度={len(reply)} | history={len(history)}")
-            await update.message.reply_text(reply)
+            confirmed = await confirm_send(reply, auth_info["chk"], chat_id)
+            if confirmed is not None:
+                await update.message.reply_text(confirmed)
+            else:
+                logger.info(f"[发送取消] chat_id={chat_id}")
         else:
             save_history[chat_id] = history
             logger.warning(f"[生成] chat_id={chat_id} | response 无文本内容")
@@ -314,6 +321,9 @@ async def handle_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
     #.         5. 调用 Gemini API → 回复用户 → 写入 history
     #.
     # 1. 提取基本信息
+    if not update.message:
+        return
+
     chat_obj = update.effective_chat
     chat_id = chat_obj.id
     chat_name = chat_obj.full_name or chat_obj.title
@@ -331,7 +341,6 @@ async def handle_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if chat_type == "private":
         is_triggered = True
     else:
-        from core.config import BOT_NAME
         if update.message.entities:
             for entity in update.message.entities:
                 if entity.type == 'mention':
@@ -353,10 +362,10 @@ async def handle_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
     replied_content = message.reply_to_message
     user_instruction = message.text or "请评价或解释一下"
 
-    logger.info(f"[回复消息] {'触发' if is_triggered else '监听'} | chat_id={chat_id} | sender={sender_name}(uid={sender_id})")
+    logger.info(f"[回复消息] {'触发' if is_triggered else '监听'} | chat_id={chat_id} | sender={sender_name}(uid={sender_id}) | 内容={user_instruction[:200]}")
 
     # 3. 授权检查 — get_chat_session() 位于 bot/session.py
-    auth_info = await get_chat_session(chat_id, chat_name, chat_type)
+    auth_info = await get_chat_session(chat_id, chat_name, chat_type, sender_id, sender_name)
     if auth_info is None:
         logger.info(f"[拦截] 黑名单 chat_id={chat_id}")
         if is_triggered:
@@ -365,7 +374,7 @@ async def handle_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     mode = auth_info["mode"]
     history = save_history.get(chat_id, [])
-    logger.debug(f"[回复消息] history 长度={len(history)}")
+    logger.info(f"[回复消息] history 长度={len(history)}")
 
     # 4. 未触发：静默写入 history（附带被回复内容的摘要，不存二进制）
     if not is_triggered:
@@ -383,7 +392,7 @@ async def handle_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ))
         history = trim_history(history)
         save_history[chat_id] = history
-        logger.debug(f"[监听回复] 写入 history, 当前长度={len(history)}")
+        logger.info(f"[监听回复] 写入 history, 当前长度={len(history)}")
         return
 
     # 5. 已触发：构造发给 Gemini 的多模态内容列表
@@ -533,7 +542,11 @@ async def handle_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception:
                 pass
 
-        await message.reply_text(response.text)
+        confirmed = await confirm_send(response.text, auth_info["chk"], chat_id)
+        if confirmed is not None:
+            await message.reply_text(confirmed)
+        else:
+            logger.info(f"[发送取消] chat_id={chat_id}")
 
         # 7. 将本次交互写回 history（用户消息 + 模型回复各一条）
         existing_history = save_history.get(chat_id, [])
@@ -623,7 +636,7 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         return
 
-    # 3. 判断触发 — 私聊直接触发；群聊检测 @mention 或 caption 中 @bot
+    # 3. 判断触发 — 私聊直接触发；群聊检测 @mention / BOT_NAME / caption
     is_triggered = chat_type == "private"
     if not is_triggered:
         if message.entities:
@@ -633,16 +646,18 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     if mention == "@" + context.bot.username:
                         is_triggered = True
                         break
-        # 群聊中如果 caption 包含 @bot 也算触发
         if not is_triggered and message.caption:
             if f"@{context.bot.username}" in message.caption:
                 is_triggered = True
                 caption = message.caption.replace(f"@{context.bot.username}", "").strip()
+            elif BOT_NAME in message.caption:
+                is_triggered = True
+                caption = message.caption.replace(BOT_NAME, '', 1).strip()
 
-    logger.info(f"[文件] {'触发' if is_triggered else '监听'} | chat_id={chat_id} | {file_name} ({mime_type}, {file_size}B)")
+    logger.info(f"[文件] {'触发' if is_triggered else '监听'} | chat_id={chat_id} | {file_name} ({mime_type}, {file_size}B) | caption={caption[:100]}")
 
     # 4. 授权检查 — get_chat_session() 位于 bot/session.py
-    auth_info = await get_chat_session(chat_id, chat_name, chat_type)
+    auth_info = await get_chat_session(chat_id, chat_name, chat_type, sender_id, sender_name)
     if auth_info is None:
         if is_triggered:
             await message.reply_text("啊这，不认识喵(")

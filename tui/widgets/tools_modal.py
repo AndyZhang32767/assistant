@@ -203,7 +203,7 @@ class ToolSettingsModal(ModalScreen):
                         self._inputs[name] = inp
                         yield inp
             with Horizontal(id="tool-settings-buttons"):
-                yield Button("Back", id="ts-back")
+                yield Button("Back", id="ts-back", classes="cancel-btn")
                 if self._config:
                     yield Button(" 💾 Save & Back ", id="ts-save", variant="success")
 
@@ -338,7 +338,7 @@ class ToolsModal(ModalScreen):
                     label = f"  {t.name}  {'✓' if has else '(无参数)'}"
                     yield Button(label, id=f"tool-{t.name}", variant="primary" if has else "default")
             with Horizontal(id="tools-close"):
-                yield Button("Cancel", id="tools-cancel")
+                yield Button("Cancel", id="tools-cancel", classes="cancel-btn")
 
     #===================================================================================
     #.       挂载 — 壳淡入 → 替换为真实 dialog

@@ -16,7 +16,7 @@ from telegram.request import HTTPXRequest
 # -- 从 bot/handlers.py 导入所有消息和命令处理器
 from bot.handlers import start_command, class_command, clear_command, handle_message, handle_reply, handle_file
 # -- 从 bot/session.py 导入会话持久化函数和运行时 sessions 字典
-from bot.session import load_sessions, load_history, load_denied, persist_history, sessions
+from bot.session import load_sessions, load_history, persist_history, sessions
 # -- 从 core/config.py 拉取 Bot Token、代理地址和版本号
 from core.config import TELEGRAM_TOKEN, PROXY_URL, VERSION
 from core.logging_setup import setup_logging
@@ -113,7 +113,6 @@ def create_application() -> Application:
     # 3. 从本地文件恢复上次的会话记录（sessions / history / denied_ids）
     load_sessions()
     load_history()
-    load_denied()
 
     # 4. 构建 Application（如配置了代理则注入 HTTPXRequest 走代理通道）
     if PROXY_URL:

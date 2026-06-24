@@ -22,9 +22,9 @@ _logging_initialized = False
 #.       Telegram Bot 使用 long polling 方式获取消息，
 #.       每秒都会产生一条 HTTP 请求日志，该过滤器将其屏蔽。
 #=============================================================
-class TelegramFilter(logging.Filter):
-    def filter(self, record):
-        return "getUpdates" not in record.getMessage()
+# class TelegramFilter(logging.Filter):
+#     def filter(self, record):
+#         return "getUpdates" not in record.getMessage()
 
 
 #=============================================================
@@ -43,8 +43,8 @@ def setup_logging() -> logging.Logger:
         level=logging.INFO,
     )
 
-    httpx_logger = logging.getLogger("httpx")
-    httpx_logger.addFilter(TelegramFilter())
+    # httpx_logger = logging.getLogger("httpx")
+    # httpx_logger.addFilter(TelegramFilter())
 
     _logging_initialized = True
     return logging.getLogger(__name__)

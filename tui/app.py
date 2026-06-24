@@ -182,7 +182,8 @@ class BotTUI(App):
         ("t", "tools", "Tools"),
         ("m", "show_manage", "Manage"),
         ("ctrl+s", "save_config", "Save"),
-        ("p", "show_status", "Status"),
+        ("w", "show_status", "Status"),
+        ("p", "show_permission", "Permission"),
     ]
 
     def __init__(self):
@@ -212,7 +213,7 @@ class BotTUI(App):
                 yield LogPanel(id="log-panel")          # 左侧日志面板
                 yield Sidebar(id="sidebar")             # 右侧功能开关
             # -- footer 纯文字壳（先渲染）
-            yield Static("c.Config     | t.Tools        | s.Schedule       | h.History       | m.Manage       | p.Status        | r.Restart       | Ctrl+S Save       | q.Quit",
+            yield Static("c.Config     | t.Tools        | s.Schedule       | h.History       | m.Manage       | p.Permission          | w.Status        | r.Restart       | Ctrl+S Save       | q.Quit",
                          id="bottom-shell")
             # -- footer 真按钮（初始隐藏，fade 后替换壳）
             with Horizontal(id="bottom-bar"):
@@ -222,7 +223,8 @@ class BotTUI(App):
                 yield Button("s.Schedule", id="sect-schedule")
                 yield Button("h.History", id="sect-hist")
                 yield Button("m.Manage", id="sect-manage")
-                yield Button("p.Status", id="sect-status")
+                yield Button("p.Permisson", id="sect-perm")
+                yield Button("w.Status", id="sect-status")
                 yield Button("r.Restart", id="sect-restart")
                 yield Button("Ctrl+S Save", id="sect-save")
                 yield Button("q.Quit", id="sect-quit")
@@ -266,16 +268,33 @@ class BotTUI(App):
         """注入 TUI 弹窗授权回调到 bot/session.py。"""
         from bot.session import set_auth_callback
 
-        async def _tui_auth(chat_id: int, chat_name: str, chat_type: str) -> str:
+        async def _tui_auth(user_id: int, user_name: str, chat_type: str,
+                            group_id: int = None, group_name: str = None) -> str:
             loop = asyncio.get_event_loop()
             future = loop.create_future()
             from tui.widgets.auth_modal import AuthModal
-            modal = AuthModal(chat_id, chat_name, chat_type)
+            modal = AuthModal(user_id, user_name, chat_type, group_id, group_name)
             modal.set_future(future)
             self.push_screen(modal)
             return await future
 
         set_auth_callback(_tui_auth)
+        self._setup_confirm_callback()
+
+    def _setup_confirm_callback(self) -> None:
+        """注入发送确认弹窗回调。"""
+        from bot.session import set_confirm_callback
+        from tui.widgets.permission_modal import ConfirmSendModal
+
+        async def _confirm_send(text: str, chat_id: int) -> str | None:
+            loop = asyncio.get_event_loop()
+            future = loop.create_future()
+            modal = ConfirmSendModal(text, chat_id)
+            modal.set_future(future)
+            self.push_screen(modal)
+            return await future
+
+        set_confirm_callback(_confirm_send)
 
     def _show_footer(self) -> None:
         """shell fade-in → 隐藏壳 → 显示真按钮。"""
@@ -324,6 +343,8 @@ class BotTUI(App):
                 self.push_screen(ToolsModal())
             elif tag == "schedule":
                 self.action_show_schedule()
+            elif tag == "perm":
+                self.action_show_permission()
             elif tag == "status":
                 self.action_show_status()
             elif tag == "manage":
@@ -363,8 +384,13 @@ class BotTUI(App):
         from tui.widgets.schedule_modal import ScheduleModal
         self.push_screen(ScheduleModal())
 
+    def action_show_permission(self) -> None:
+        #.       快捷键 p：管理用户权限。
+        from tui.widgets.permission_modal import PermissionModal
+        self.push_screen(PermissionModal())
+
     def action_show_status(self) -> None:
-        #.       快捷键 p：查看系统资源占用。
+        #.       快捷键 w：查看系统资源占用。
         from tui.widgets.status_modal import StatusModal
         self.push_screen(StatusModal())
 

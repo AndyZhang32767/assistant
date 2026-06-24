@@ -135,7 +135,7 @@ class ScheduleModal(ModalScreen):
                     for item in items:
                         yield Static(f"  {item['time']}        {item['callback']}", classes="schedule-row")
             with Horizontal(id="schedule-close"):
-                yield Button("Close (Esc)", id="schedule-close-btn")
+                yield Button("Close (Esc)", id="schedule-close-btn", classes="cancel-btn")
 
     #===================================================================================
     #.       挂载 — 壳淡入 → 替换为真实 dialog

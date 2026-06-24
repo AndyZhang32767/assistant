@@ -17,6 +17,8 @@ from logging import LogRecord
 from rich.text import Text, Style
 from textual.widgets import RichLog
 
+from core.config import LOG_MAX_LINES
+
 
 #=======================================================================================
 #.       _TUILogHandler — 将 logging 日志转发到 Textual RichLog 组件
@@ -49,7 +51,7 @@ class _TUILogHandler(logging.Handler):
         ("[回复消息] 触发", "bright_cyan", True),
         ("[文件] 触发", "bright_cyan", True),
         ("[回复文件]", "bright_cyan", False),
-        ("监听",    "dim grey", False),
+        ("监听",    "bright_cyan", False),
         ("[生成]",  "bright_yellow", False),
         ("[回复生成]", "bright_yellow", False),
         ("[文件生成]", "bright_yellow", False),
@@ -127,18 +129,20 @@ class _TUILogHandler(logging.Handler):
 
 class LogPanel(RichLog):
     def __init__(self, **kwargs):
-        super().__init__(highlight=True, markup=True, wrap=True, max_lines=1000, **kwargs)
+        super().__init__(highlight=True, markup=True, wrap=True, max_lines=LOG_MAX_LINES, **kwargs)
         self._handler: _TUILogHandler | None = None
         self._buf: list[str] = []
+        self._max_lines = LOG_MAX_LINES
 
     #=========================================================
     #.       追加纯文本行到缓冲（由 _TUILogHandler.emit 调用）
-    #.       环形缓冲：超过 1000 行时丢弃最早的行
+    #.       超过 LOG_MAX_LINES 时自动清屏
     #=========================================================
     def append_text(self, line: str) -> None:
         self._buf.append(line)
-        if len(self._buf) > 1000:
-            self._buf = self._buf[-1000:]
+        if len(self._buf) > self._max_lines:
+            self.clear()
+            self._buf.clear()
 
     #=========================================================
     #.       获取完整日志文本（供 LogViewModal 选中复制）

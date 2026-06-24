@@ -1,21 +1,22 @@
 # Assistant Bot
 
-基于 Telegram + Google Gemini 的多功能 AI 助手，支持插件化工具扩展。私聊和群聊均可用，带 TUI 控制台管理界面。
+一个基于 Telegram + Google Gemini 的多功能 AI 助手，支持插件化工具扩展。私聊和群聊均可用，带 TUI 控制台管理界面。
+本 bot 适用于 MacOS
 
 ## 功能概览
 
-- 私聊 AI 对话，开放全部工具（提醒、课表、搜索、BT 下载等）
-- 群聊 @bot 响应，受限工具集（时间、课表、搜索、群组备忘）
-- macOS 系统提醒事项管理（增删改查 + 优先级 + 提前提醒）
-- 课表查询 + 每日定时推送
-- DuckDuckGo 网页搜索
-- 群组备忘录
-- BT 下载集成（qBittorrent，支持 magnet 链接和 .torrent 文件）
-- Office 文档转 PDF（LibreOffice）
-- 首次设置向导（引导配置 Token、Key 等）
-- 新用户授权弹窗（Premium / Normal / 拒绝）
-- TUI 控制台：配置编辑、工具管理、功能开关、实时日志
-- 插件系统：`tools/` 目录自动发现与注册，支持从 GitHub 远程下载安装
+- **私聊 / 群聊双模式**：私聊开放全部工具，群聊 @bot 响应
+- **首次设置向导**：全屏引导配置 Token、Key、管理员 ID 等
+- **配置编辑**：TUI 中直接编辑 config.py 变量和 Tools 参数，即时生效
+- **功能开关**：侧边栏独立控制每个 tool，无需重启
+- **工具管理**：远程下载 / 删除插件，支持从 GitHub 仓库拉取
+- **用户授权**：新用户弹窗选择 Premium / Normal / 拒绝，黑名单管理
+- **用户权限管理**：查看和修改所有已授权用户的权限级别
+- **会话历史**：查看和管理对话历史
+- **实时日志**：着色日志流，关键词高亮，自动清屏
+- **系统状态**：CPU、内存、电源监控
+- **课表查看**：TUI 内查看当日课程安排
+- **定时任务**：课表每日推送、BT 下载轮询
 
 ## 架构
 
@@ -37,6 +38,7 @@ assistant/
 │   ├── search.py         # DuckDuckGo 网页搜索
 │   ├── notice.py         # 群组备忘录
 │   ├── doc_converter.py  # Office → PDF 转换
+│   ├── window_manager.py # 桌面窗口管理（截图 + 视觉分析）
 │   └── qbittorrent.py    # BT 下载集成
 ├── tui/                  # Textual 控制台
 │   ├── app.py            # TUI 主应用
@@ -46,9 +48,11 @@ assistant/
 │       ├── setup_screen.py   # 首次设置向导
 │       ├── loading_screen.py # 启动加载画面
 │       ├── sidebar.py        # 侧边栏（状态/开关）
+│       ├── config_bar.py     # 配置栏（滚动图标 + 版本号）
 │       ├── config_modal.py   # 配置编辑弹窗
 │       ├── tools_modal.py    # Tools 参数编辑
 │       ├── manage_modal.py   # 工具管理（远程下载/删除）
+│       ├── permission_modal.py # 用户权限管理
 │       ├── auth_modal.py     # 新用户授权弹窗
 │       ├── history_modal.py  # 对话历史查看
 │       ├── schedule_modal.py # 课表查看
@@ -87,7 +91,7 @@ python3 run.py            # 命令行模式
 |------|------|------|
 | `TELEGRAM_TOKEN` | Telegram Bot Token | 从 @BotFather 获取 |
 | `GEMINI_API_KEY` | Google Gemini API 密钥 | 从 aistudio.google.com 获取 |
-| `MODEL_TYPE` | Gemini 模型 | `gemini-3.1-flash-lite-preview` |
+| `MODEL_TYPE` | Gemini 模型 | `gemini-3.1-flash-lite` |
 | `AFC_MAX_CALLS` | 自动函数调用最大轮次 | `20` |
 | `ADMIN_ID` | 管理员 Telegram 用户 ID | `123456789` |
 | `PROXY_URL` | HTTP 代理（可选） | `http://127.0.0.1:10808` |
@@ -95,6 +99,7 @@ python3 run.py            # 命令行模式
 | `PRIVATE_INSTRUCTION` | 私聊 System Prompt | 定义角色和行为 |
 | `PUBLIC_INSTRUCTION` | 群聊 System Prompt | 定义群聊角色和行为 |
 | `SETUP` | 首次启动是否进入设置向导 | `True` / `False` |
+| `LOG_MAX_LINES` | 日志面板最大行数 | `2000` |
 
 Tools 参数（如 qBittorrent 连接信息、课表推送时间）编辑对应 `tools/*.py` 中的 `#==CONFIG==` 段，或通过 TUI 按 `t` 进入 Tools 菜单编辑。
 
@@ -104,12 +109,12 @@ TUI 模式基于 [Textual](https://textual.textualize.io/) 框架。
 
 ### 首次设置向导
 
-当 `SETUP = True` 时，启动后自动进入设置向导，引导依次设置：Telegram Token → Gemini API Key → 管理员 ID → 代理地址 → Bot 名称 → 私聊/群聊 Instruction。完成后自动将 `SETUP` 写为 `False` 并进入主界面。
+首次启动后自动进入设置向导，引导依次设置：Telegram Token → Gemini API Key → 管理员 ID → 代理地址 → Bot 名称 → 私聊/群聊 Instruction。完成后自动将自动重启
 
 ### 界面布局
 
-- **左侧边栏**：Bot 运行状态、CPU/内存、各 tool 独立开关
-- **右侧主区域**：实时日志流
+- **右侧边栏**：Bot 各功能的独立开关
+- **左侧主区域**：实时日志流
 - **底部栏**：快捷键提示
 
 ### 快捷键
