@@ -28,7 +28,7 @@ from core.config import LOG_MAX_LINES
 #.         2. 日志级别 >= WARNING → bright_yellow
 #.         3. 来源模块匹配        → _SOURCE_COLORS 中定义的颜色
 #.         4. 关键词匹配          → _KEYWORD_COLORS 中定义的颜色
-#.         5. 默认                → white (INFO) / dim grey (DEBUG)
+#.         5. 默认                → white (INFO) / grey (DEBUG)
 #=======================================================================================
 
 class _TUILogHandler(logging.Handler):
@@ -92,7 +92,7 @@ class _TUILogHandler(logging.Handler):
             elif record.levelno >= logging.INFO:
                 color = "white"
             else:
-                color = "dim grey"
+                color = "grey"
 
             bold = False
             name = record.name

@@ -191,6 +191,7 @@ class BotTUI(App):
         self._bot_task: asyncio.Task | None = None   # Bot 运行任务
         self._application = None                       # PTB Application 实例
         self._sections: list[Section] = []             # 配置区块列表
+        self._ui_ready = False                         # 主界面是否已就绪（loading 完成后才允许操作）
 
     #===================================================================================
     #.       界面构建 — compose()
@@ -255,6 +256,7 @@ class BotTUI(App):
     def _after_loading(self, _result=None) -> None:
         """Loading 结束：触发动画（bot 已在后台运行）。"""
         self._start_animations()
+        self._ui_ready = True
 
     def _start_animations(self) -> None:
         """header + sidebar + footer 动画。"""
@@ -270,6 +272,9 @@ class BotTUI(App):
 
         async def _tui_auth(user_id: int, user_name: str, chat_type: str,
                             group_id: int = None, group_name: str = None) -> str:
+            # Loading 期间延迟弹窗，等主界面就绪后再弹出
+            while not self._ui_ready:
+                await asyncio.sleep(0.2)
             loop = asyncio.get_event_loop()
             future = loop.create_future()
             from tui.widgets.auth_modal import AuthModal
@@ -279,22 +284,6 @@ class BotTUI(App):
             return await future
 
         set_auth_callback(_tui_auth)
-        self._setup_confirm_callback()
-
-    def _setup_confirm_callback(self) -> None:
-        """注入发送确认弹窗回调。"""
-        from bot.session import set_confirm_callback
-        from tui.widgets.permission_modal import ConfirmSendModal
-
-        async def _confirm_send(text: str, chat_id: int) -> str | None:
-            loop = asyncio.get_event_loop()
-            future = loop.create_future()
-            modal = ConfirmSendModal(text, chat_id)
-            modal.set_future(future)
-            self.push_screen(modal)
-            return await future
-
-        set_confirm_callback(_confirm_send)
 
     def _show_footer(self) -> None:
         """shell fade-in → 隐藏壳 → 显示真按钮。"""
@@ -355,6 +344,12 @@ class BotTUI(App):
     #===================================================================================
     #.       键盘快捷键动作
     #===================================================================================
+
+    def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
+        """Loading 期间屏蔽所有操作，防止快捷键/弹窗打断初始化流程。"""
+        if not self._ui_ready and action not in ("quit",):
+            return False
+        return True
 
     def action_section(self, index: int) -> None:
         #.       快捷键：打开第 N 个配置区块弹窗。

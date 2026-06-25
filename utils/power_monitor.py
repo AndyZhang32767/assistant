@@ -4,7 +4,7 @@
 #.       通过 osascript + administrator privileges 启动后台 powermetrics 进程，
 #.       实时解析 CPU/GPU/ANE 功耗（毫瓦 → 瓦特）。
 #.
-#.       首次启动会弹出 macOS 原生管理员密码对话框。
+#.       首次启动会弹出 macOS 原生管理员密码对话框（仅弹一次）。
 #.       回退方案：读取 ioreg AppleSmartBattery 的 SystemPowerIn。
 #=======================================================================================
 
@@ -33,6 +33,7 @@ class PowerMonitor:
             cls._instance._ane_w = 0.0
             cls._instance._package_w = 0.0
             cls._instance._running = False
+            cls._instance._start_attempted = False  # 确保 start() 最多触发一次密码弹窗
             cls._instance._lock = threading.Lock()
             cls._instance._file_pos = 0
         return cls._instance
@@ -44,19 +45,24 @@ class PowerMonitor:
         if self._running:
             return True
 
+        # 已经尝试过（无论成功与否）就不再重复弹密码框
+        if self._start_attempted:
+            return False
+        self._start_attempted = True
+
         # 清理旧输出文件
         try:
             os.remove(_PM_OUTPUT)
         except (FileNotFoundError, PermissionError):
             pass
 
-        # 通过 osascript 获取管理员权限启动 powermetrics
-        # 子 shell 后台运行，osascript 立即返回
+        # 通过 osascript 获取管理员权限，nohup 启动 powermetrics
+        # nohup 确保进程在 osascript admin session 结束后继续存活
         script = (
-            f'do shell script "(powermetrics'
+            f'do shell script "nohup powermetrics'
             f' --samplers cpu_power,gpu_power,ane_power'
             f' -i 1000'
-            f' > {_PM_OUTPUT} 2>&1 &) ; echo ok"'
+            f' > {_PM_OUTPUT} 2>&1 &"'
             f' with administrator privileges'
         )
 
@@ -65,8 +71,9 @@ class PowerMonitor:
                 ["osascript", "-e", script],
                 capture_output=True, text=True, timeout=30,
             )
-            if "ok" not in result.stdout:
-                logger.error(f"powermetrics 启动失败: {result.stderr}")
+            # do shell script "... &" 后台命令返回空字符串，用 returncode 判断是否成功
+            if result.returncode != 0:
+                logger.error(f"powermetrics 启动失败: {result.stderr.strip()}")
                 return False
         except subprocess.TimeoutExpired:
             logger.error("osascript 超时（用户取消了密码对话框？）")
@@ -96,24 +103,27 @@ class PowerMonitor:
     def stop(self) -> None:
         if not self._running:
             return
+        # 与 start() 保持一致，通过 osascript 获取管理员权限，避免终端 sudo 密码提示
         try:
+            script = 'do shell script "pkill -x powermetrics" with administrator privileges'
             subprocess.run(
-                ["sudo", "pkill", "-x", "powermetrics"],
-                capture_output=True, timeout=5,
+                ["osascript", "-e", script],
+                capture_output=True, timeout=10,
             )
         except Exception:
             pass
         self._running = False
+        self._start_attempted = False  # 允许下次重新启动
         logger.info("powermetrics 已停止")
 
-    _MAX_FILE_SIZE = 2 * 1024 * 1024  # 超过 2MB 重启 powermetrics 截断文件
+    _MAX_FILE_SIZE = 2 * 1024 * 1024  # 超过 2MB 截断文件
 
     #=============================================================
     #.       读取最新功耗数据
     #=============================================================
     def _read_latest(self) -> None:
         #.       从输出文件读取增量内容，解析最新采样中的功耗值。
-        #.       文件超过 _MAX_FILE_SIZE 时自动重启 powermetrics 截断。
+        #.       文件超过 _MAX_FILE_SIZE 时直接清空（不重启 powermetrics）。
         if not self._running:
             return
 
@@ -121,13 +131,12 @@ class PowerMonitor:
             if not os.path.exists(_PM_OUTPUT):
                 return
 
-            # 文件过大 → 重启截断
-            if os.path.getsize(_PM_OUTPUT) > self._MAX_FILE_SIZE:
-                logger.info("powermetrics 输出文件过大，重启截断")
-                self.stop()
-                time.sleep(0.3)
-                self.start()
-                return
+            # 文件过大 → 跳过旧数据，只留尾部足够解析最新采样
+            fsize = os.path.getsize(_PM_OUTPUT)
+            if fsize > self._MAX_FILE_SIZE:
+                skip_to = max(0, fsize - 65536)
+                if self._file_pos < skip_to:
+                    self._file_pos = skip_to
 
             with open(_PM_OUTPUT, "r") as f:
                 f.seek(self._file_pos)
@@ -159,6 +168,19 @@ class PowerMonitor:
 
         except Exception:
             logger.debug("读取 powermetrics 输出失败", exc_info=True)
+
+    #=============================================================
+    #.       一次性读取所有功耗值快照（避免多次触发 _read_latest）
+    #=============================================================
+    def snapshot(self) -> dict:
+        self._read_latest()
+        with self._lock:
+            return {
+                "cpu":     self._cpu_w,
+                "gpu":     self._gpu_w,
+                "ane":     self._ane_w,
+                "package": self._package_w,
+            }
 
     #=============================================================
     #.       公开属性 — 返回瓦特值

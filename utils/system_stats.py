@@ -39,16 +39,20 @@ def get_memory_mb() -> tuple[float, float]:
 #===========================================================================
 
 import threading
+import time
 
 _pm_started = False
+_pm_fail_time = 0.0      # 上次失败时间戳，用于冷却
 
 
 def _ensure_powermetrics():
     #.       惰性启动 powermetrics 后台监控（首次调用时在后台线程
     #.       弹出 macOS 管理员密码对话框，不阻塞 UI）。
-    #.       启动失败则重置标记，下次可重试。
-    global _pm_started
+    #.       失败后冷却 60 秒再重试，避免反复弹窗。
+    global _pm_started, _pm_fail_time
     if _pm_started:
+        return
+    if time.monotonic() - _pm_fail_time < 60:
         return
     _pm_started = True
 
@@ -56,8 +60,9 @@ def _ensure_powermetrics():
         from utils.power_monitor import get_power_monitor
         ok = get_power_monitor().start()
         if not ok:
-            global _pm_started
-            _pm_started = False  # 允许下次重试
+            global _pm_started, _pm_fail_time
+            _pm_started = False
+            _pm_fail_time = time.monotonic()
 
     threading.Thread(target=_do_start, daemon=True).start()
 
@@ -72,13 +77,7 @@ def get_power_breakdown() -> dict:
     pm = get_power_monitor()
 
     if pm.is_running:
-        # powermetrics 数据
-        return {
-            "cpu": pm.cpu_w,
-            "gpu": pm.gpu_w,
-            "ane": pm.ane_w,
-            "package": pm.package_w,
-        }
+        return pm.snapshot()
 
     # 回退：ioreg SystemPowerIn
     fallback = _ioreg_system_power_w()

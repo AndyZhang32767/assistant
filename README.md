@@ -77,37 +77,16 @@ assistant/
 pip install -r requirements.txt
 
 # 2. 启动（首次运行自动进入设置向导）
-python3 tui_run.py        # TUI 控制台模式（推荐）
-python3 run.py            # 命令行模式
+启动 assistant.command
+bash run.sh
+python3 run.py        # TUI 控制台模式（推荐）
+
+python3 debug.py            # CLI模式
 ```
 
-首次启动时若 `core/config.py` 中 `SETUP = True`（默认），会自动进入全屏设置向导，引导配置 Token、Key、管理员 ID 等信息。
-
-## 配置
-
-编辑 [core/config.py](core/config.py) 中的以下变量：
-
-| 变量 | 说明 | 示例 |
-|------|------|------|
-| `TELEGRAM_TOKEN` | Telegram Bot Token | 从 @BotFather 获取 |
-| `GEMINI_API_KEY` | Google Gemini API 密钥 | 从 aistudio.google.com 获取 |
-| `MODEL_TYPE` | Gemini 模型 | `gemini-3.1-flash-lite` |
-| `AFC_MAX_CALLS` | 自动函数调用最大轮次 | `20` |
-| `ADMIN_ID` | 管理员 Telegram 用户 ID | `123456789` |
-| `PROXY_URL` | HTTP 代理（可选） | `http://127.0.0.1:10808` |
-| `BOT_NAME` | 群聊中唤起 Bot 的关键词 | `助手` |
-| `PRIVATE_INSTRUCTION` | 私聊 System Prompt | 定义角色和行为 |
-| `PUBLIC_INSTRUCTION` | 群聊 System Prompt | 定义群聊角色和行为 |
-| `SETUP` | 首次启动是否进入设置向导 | `True` / `False` |
-| `LOG_MAX_LINES` | 日志面板最大行数 | `2000` |
-
-Tools 参数（如 qBittorrent 连接信息、课表推送时间）编辑对应 `tools/*.py` 中的 `#==CONFIG==` 段，或通过 TUI 按 `t` 进入 Tools 菜单编辑。
-
-## TUI 控制台
-
-TUI 模式基于 [Textual](https://textual.textualize.io/) 框架。
-
 ### 首次设置向导
+
+首次启动时若 `core/config.py` 中 `SETUP = True`（默认），会自动进入全屏设置向导，引导配置 Token、Key、管理员 ID 等信息。
 
 首次启动后自动进入设置向导，引导依次设置：Telegram Token → Gemini API Key → 管理员 ID → 代理地址 → Bot 名称 → 私聊/群聊 Instruction。完成后自动将自动重启
 
@@ -125,8 +104,9 @@ TUI 模式基于 [Textual](https://textual.textualize.io/) 框架。
 | `t` | 打开 Tools 参数管理 |
 | `m` | 工具管理（远程下载 / 删除已安装工具） |
 | `h` | 查看会话历史 |
-| `s` | 查看课表 |
-| `p` | 系统状态（CPU、内存、电源） |
+| `s` | 查看注册的计划 |
+| `p` | 进入用户权限介面和对话审核介面 |
+| `w` | 系统负载及加载功能展示介面 |
 | `Ctrl+S` | 保存配置到文件 |
 | `r` | 重启 Bot |
 | `q` | 退出 |
@@ -136,10 +116,57 @@ TUI 模式基于 [Textual](https://textual.textualize.io/) 框架。
 侧边栏提供每个 tool 和子功能的独立开关，实时生效无需重启。开关状态持久化到 `data/feature_flags.json`。
 
 支持的功能开关：
-- 各 tool 模块整体启用/禁用
-- 文件附件支持（`file_attachment`）
-- Office 转 PDF（`office_to_pdf`）
-- 早间课表推送（`morning_push`）
+- 系统注册的开关
+- 各 tool 模块注册的开关
+
+## Config
+
+| 变量 | 说明 | 示例 |
+|------|------|------|
+| `TELEGRAM_TOKEN` | Telegram Bot Token | 从 @BotFather 获取 |
+| `GEMINI_API_KEY` | Google Gemini API 密钥 | 从 aistudio.google.com 获取 |
+| `MODEL_TYPE` | Gemini 模型 | `gemini-3.1-flash-lite` |
+| `AFC_MAX_CALLS` | 自动函数调用最大轮次 | `20` |
+| `ADMIN_ID` | 管理员 Telegram 用户 ID | `123456789` |
+| `PROXY_URL` | HTTP 代理（可选） | `http://127.0.0.1:10808` |
+| `BOT_NAME` | 群聊中唤起 Bot 的关键词 | `助手` |
+| `PRIVATE_INSTRUCTION` | 私聊 System Prompt | 定义角色和行为 |
+| `PUBLIC_INSTRUCTION` | 群聊 System Prompt | 定义群聊角色和行为 |
+| `SETUP` | 首次启动是否进入设置向导 | `True` / `False` |
+| `LOG_MAX_LINES` | 日志面板最大行数 | `2000` |
+
+# Promote需要提示Bot如何调用函数，具体方法为：xx功能可以通过调用xx实现 的句式
+
+
+## Tools
+
+配置每个tool的常量，由工具自动注册，详情格式见 tools.md
+
+## Shedule
+
+当前注册的定时任务
+
+## History
+
+管理私人/群聊的聊天记录，默认记录 10 轮 （20次对话）
+
+## Manage
+
+管理安装的工具，可联网从github发布页下载tools
+
+## Permission
+
+管理每个人的分类群组(Premium 使用 Private intruction | Normal 使用 Public instruction)
+进入 消息确认 二级介面，可在顶部勾选需要拦截并进行二次确认的用户组
+    之后每次 Bot 生成回复时被拦截的组消息需经过二次确认方可展示，期间可以进行编辑，并自动同步至记忆
+
+## Status 
+
+左侧是电脑系统占用情况，右侧展示被加载的tools函数
+
+## Restart
+
+重新启动tui介面
 
 ## 命令
 
@@ -147,7 +174,7 @@ TUI 模式基于 [Textual](https://textual.textualize.io/) 框架。
 |------|------|:--:|
 | `/start` | 发送欢迎语 | 所有用户 |
 | `/class` | 查询当日课表 | premium 用户 |
-| `/clear` | 清除当前会话历史 | 已授权用户 |
+| `/capture` | 获取当前屏幕截图 | premium权用户 |
 
 ## 用户授权
 
@@ -158,23 +185,8 @@ TUI 模式基于 [Textual](https://textual.textualize.io/) 框架。
 
 授权信息持久化到 `data/sessions_data.json`。
 
-## 定时任务
 
-| 任务 | 说明 |
-|------|------|
-| 课表推送 | 每日指定时间向 premium 用户推送当日课表（需开启 `morning_push` 开关） |
-| qBittorrent 轮询 | 定时检查 BT 下载状态，完成后自动打包发送到 Telegram |
-| 主调度器 | 每 10 秒检查一次待执行任务队列 |
-
-## 工具管理
-
-TUI 中按 `m` 打开，可远程下载安装新工具或删除已安装工具。
-
-## 插件系统
-
-`tools/` 目录下的 `.py` 文件自动发现和注册。每个文件通过 `#==TOOL==` 头部声明元信息，可选 `#==CONFIG==` 段声明用户可配置参数。详见 [tools.md](tools.md)。
-
-## 系统依赖（可选）
+## tools依赖
 
 | 依赖 | 用途 | 安装 |
 |------|------|------|

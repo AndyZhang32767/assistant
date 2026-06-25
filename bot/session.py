@@ -14,6 +14,10 @@ import asyncio
 import json
 import logging
 import os
+import uuid
+from dataclasses import dataclass, field
+from datetime import datetime
+from typing import Any
 
 # -- 从 core/config.py 拉取会话文件路径和两种 System Prompt
 from core.config import SESSION_FILE, PRIVATE_INSTRUCTION, PUBLIC_INSTRUCTION
@@ -153,27 +157,122 @@ def set_auth_callback(cb):
     _auth_callback = cb
 
 
-# -- _confirm_callback → 消息发送前的确认弹窗回调
-_confirm_callback = None
+#=======================================================================================
+#.       发送确认设置 & 待确认消息队列
+#.       _confirm_premium: True = Premium 用户的消息需确认后才发送
+#.       _confirm_normal:  True = Normal 用户的消息需确认后才发送
+#.       _pending_messages: 待确认消息队列（FIFO，先进先出）
+#=======================================================================================
+
+from tui.widgets.permission_modal import PREMIUM, NORMAL
+
+_confirm_premium: bool = PREMIUM
+_confirm_normal: bool = NORMAL
 
 
-def set_confirm_callback(cb):
-    """TUI 注入发送确认弹窗回调。cb(text, chat_id) → 返回确认后的文本或 None。"""
-    global _confirm_callback
-    _confirm_callback = cb
+@dataclass
+class PendingMessage:
+    """一条待确认的回复消息。"""
+    msg_id: str = field(default_factory=lambda: uuid.uuid4().hex[:12])
+    text: str = ""
+    chat_id: int = 0
+    message: Any = None          # telegram.Message 对象，用于 reply_text
+    chk: str = "F"               # 用户权限标记
+    timestamp: datetime = field(default_factory=datetime.now)
 
 
-async def confirm_send(text: str, chk: str, chat_id: int) -> str | None:
-    """根据 confirm_mode 和用户 chk 决定是否需要确认。返回文本或 None。"""
-    from tui.widgets.permission_modal import get_confirm_mode
-    mode = get_confirm_mode()
-    if mode == "off":
-        return text
-    if mode == "public" and chk == "T":
-        return text
-    if _confirm_callback:
-        return await _confirm_callback(text, chat_id)
-    return text
+_pending_messages: list[PendingMessage] = []
+
+
+def confirm_send(text: str, chk: str, chat_id: int, message) -> bool:
+    """非阻塞发送确认。
+
+    根据 _confirm_premium / _confirm_normal 决定是否需要确认。
+    - 无需确认 → asyncio.create_task 直接发送，返回 True
+    - 需确认 → 加入 _pending_messages 队列，返回 False
+
+    不 await，不阻塞 handler 流程。
+    """
+    # Premium 用户：_confirm_premium=False 时直接发送
+    if chk == "T" and not _confirm_premium:
+        asyncio.create_task(message.reply_text(text))
+        return True
+    # Normal 用户：_confirm_normal=False 时直接发送
+    if chk != "T" and not _confirm_normal:
+        asyncio.create_task(message.reply_text(text))
+        return True
+    # 需要确认 → 加入队列
+    msg = PendingMessage(
+        text=text,
+        chat_id=chat_id,
+        message=message,
+        chk=chk,
+    )
+    _pending_messages.append(msg)
+    logger.info(f"[确认队列] chat_id={chat_id} | 队列长度={len(_pending_messages)}")
+    return False
+
+
+#=============================================================
+#.       确认设置 getter / setter
+#=============================================================
+
+def get_confirm_settings() -> tuple[bool, bool]:
+    """返回 (confirm_premium, confirm_normal)。"""
+    return (_confirm_premium, _confirm_normal)
+
+
+def set_confirm_settings(premium: bool, normal: bool) -> None:
+    """设置 premium / normal 用户是否需要确认，并写回 permission_modal.py。"""
+    global _confirm_premium, _confirm_normal
+    _confirm_premium = premium
+    _confirm_normal = normal
+    # 不阻塞 UI：后台线程写盘
+    import threading
+    threading.Thread(target=_persist_confirm_to_modal, daemon=True).start()
+
+
+# -- permission_modal.py 的路径（相对于 session.py 向上两级）
+_MODAL_PATH = os.path.join(os.path.dirname(__file__), "..", "tui", "widgets", "permission_modal.py")
+
+
+def _persist_confirm_to_modal() -> None:
+    """将 _confirm_premium / _confirm_normal 写回 permission_modal.py 的 PREMIUM / NORMAL 常量。"""
+    try:
+        normalized = os.path.normpath(_MODAL_PATH)
+        with open(normalized, 'r') as f:
+            lines = f.readlines()
+
+        premium_val = "True" if _confirm_premium else "False"
+        normal_val = "True" if _confirm_normal else "False"
+
+        for i, line in enumerate(lines):
+            if line.strip().startswith("PREMIUM = ") or line.strip().startswith("PREMIUM="):
+                lines[i] = f"PREMIUM = {premium_val}\n"
+            elif line.strip().startswith("NORMAL = ") or line.strip().startswith("NORMAL="):
+                lines[i] = f"NORMAL = {normal_val}\n"
+
+        with open(normalized, 'w') as f:
+            f.writelines(lines)
+    except Exception as e:
+        logger.error(f"持久化 confirm 设置到 permission_modal.py 失败: {e}")
+
+
+#=============================================================
+#.       待确认消息队列操作
+#=============================================================
+
+def get_pending_messages() -> list[PendingMessage]:
+    """获取当前所有待确认的消息（按加入顺序，旧→新）。"""
+    return list(_pending_messages)
+
+
+def remove_pending_message(msg_id: str) -> PendingMessage | None:
+    """从队列移除指定 msg_id 的消息。返回被移除的消息或 None。"""
+    for i, msg in enumerate(_pending_messages):
+        if msg.msg_id == msg_id:
+            return _pending_messages.pop(i)
+    return None
 
 
 #=============================================================

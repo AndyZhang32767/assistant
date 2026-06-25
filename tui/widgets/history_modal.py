@@ -149,7 +149,7 @@ class HistoryList(ModalScreen):
         bid = event.button.id or ""
         if bid == "hist-close":
             self.dismiss()
-        elif bid.startswith("hist-"):
+        elif bid.startswith("hist-") and bid != "hist-close":
             try:
                 chat_id = int(bid[5:])
                 self.app.push_screen(ChatHistoryView(chat_id))

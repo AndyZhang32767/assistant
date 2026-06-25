@@ -14,7 +14,7 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters
 from telegram.request import HTTPXRequest
 
 # -- 从 bot/handlers.py 导入所有消息和命令处理器
-from bot.handlers import start_command, class_command, clear_command, handle_message, handle_reply, handle_file
+from bot.handlers import start_command, class_command, clear_command, handle_message, handle_reply, handle_file, capture_command
 # -- 从 bot/session.py 导入会话持久化函数和运行时 sessions 字典
 from bot.session import load_sessions, load_history, persist_history, sessions
 # -- 从 core/config.py 拉取 Bot Token、代理地址和版本号
@@ -144,6 +144,7 @@ def create_application() -> Application:
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("class", class_command))
     application.add_handler(CommandHandler("clear", clear_command))
+    application.add_handler(CommandHandler("capture", capture_command))
 
     # 6. 注册主调度器（每 10s 检查一次）
     application.job_queue.run_repeating(

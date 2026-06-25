@@ -22,6 +22,7 @@ import re
 from google.genai import types
 from telegram import Update
 from telegram.ext import ContextTypes
+from telegram import Bot
 
 # -- 从 bot/session.py 获取会话运行时状态和授权函数
 from bot.session import sessions, save_history, get_chat_session, confirm_send
@@ -71,6 +72,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 #=============================================================
 async def class_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat_id = update.effective_chat.id
+    chat_obj = update.effective_chat
+    chat_name = chat_obj.full_name or chat_obj.title
     sender = update.effective_user
     sender_id = sender.id if sender else chat_id
     auth_info = sessions.get(sender_id)
@@ -87,6 +90,38 @@ async def class_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     logger.info(f"/class 查询课表: chat_id={chat_id}")
     schedule = fetch_school_schedule()
     await update.message.reply_text(schedule)
+
+
+#=============================================================
+#.       /capture 命令处理器
+#.       获取电脑的全屏截图
+#.       适用于 premium 用户组
+#=============================================================
+async def capture_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    chat_id = update.effective_chat.id
+    sender = update.effective_user
+    chat_obj = update.effective_chat
+    chat_name = chat_obj.full_name or chat_obj.title
+    sender_id = sender.id if sender else chat_id
+    sender_name = (sender.full_name if sender else None) or chat_name
+    auth_info = sessions.get(sender_id)
+
+    if not auth_info or auth_info.get("chk") != "T":
+        logger.warning(f"/capture 被非授权用户调用：调用id = {sender_id}, [{sender_name}]")
+        await update.message.reply_text("抱歉，你还没有获得使用权限哦。")
+        return
+    try:
+        from tools.window_manager import capture_fullscreen
+        capture_fullscreen()
+        project_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        photo_path = os.path.join(project_dir, "fullscreen_screenshot.png")
+        with open(photo_path, "rb") as photo_file:
+            await context.bot.send_photo(chat_id=chat_id, photo=photo_file)
+        logger.info(f"{sender_id}[{sender_name}截取桌面截图]")
+    except Exception:
+        await update.message.reply_text("暂未安装 window_manager，请前往 Manage 板块安装")
+        logger.warning(f"{sender_id}[{sender_name}]尝试截图，但未安装对应tools")
+
 
 
 #=============================================================
@@ -277,11 +312,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ))
             save_history[chat_id] = history
             logger.info(f"[回复] chat_id={chat_id} | 长度={len(reply)} | history={len(history)}")
-            confirmed = await confirm_send(reply, auth_info["chk"], chat_id)
-            if confirmed is not None:
-                await update.message.reply_text(confirmed)
-            else:
-                logger.info(f"[发送取消] chat_id={chat_id}")
+            if not confirm_send(reply, auth_info["chk"], chat_id, update.message):
+                logger.info(f"[确认队列] chat_id={chat_id} 消息已排队等待确认")
         else:
             save_history[chat_id] = history
             logger.warning(f"[生成] chat_id={chat_id} | response 无文本内容")
@@ -542,11 +574,8 @@ async def handle_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception:
                 pass
 
-        confirmed = await confirm_send(response.text, auth_info["chk"], chat_id)
-        if confirmed is not None:
-            await message.reply_text(confirmed)
-        else:
-            logger.info(f"[发送取消] chat_id={chat_id}")
+        if not confirm_send(response.text, auth_info["chk"], chat_id, message):
+            logger.info(f"[确认队列] chat_id={chat_id} 消息已排队等待确认")
 
         # 7. 将本次交互写回 history（用户消息 + 模型回复各一条）
         existing_history = save_history.get(chat_id, [])
