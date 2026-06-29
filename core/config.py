@@ -10,7 +10,7 @@ import os
 #.       VERSION — 版本号标识（只读，不可通过 TUI 修改）
 #=================================================================
 VERSION = "8.2"
-SETUP = False
+SETUP = True
 
 # -- TELEGRAM_TOKEN → bot/main.py create_application() 构建 Telegram Application 时使用
 #===========================================================================================================

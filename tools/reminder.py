@@ -3,13 +3,12 @@
 #.       access: pr
 #.       title: 系统提醒
 #.       description: 通过 AppleScript 与 macOS 提醒事项交互，支持增删改查和优先级管理
-#.       version: 4.4
+#.       version: 5.1
 #.       sidebar: add_local_reminder=添加提醒, remove_local_reminder=删除提醒, update_reminder_priority=提醒优先级, fetch_local_reminders=查询提醒
 #==END TOOL===================================================================
 
 #==CONFIG=======================================================================
 #.       (此工具无可配置参数)
-#==CONFIG=======================================================================
 #==END CONFIG===================================================================
 
 #=======================================================================================
@@ -250,17 +249,18 @@ def fetch_local_reminders() -> str:
 def _format_date_for_applescript(dt: datetime.datetime) -> str:
     """将 datetime 转为 AppleScript 可靠识别的日期字符串。
 
-    AppleScript 的 date 关键字是 locale 敏感的，YYYY-MM-DD 格式在中文 macOS
-    系统下不可靠，会导致日期写入失败或时间错误。
-    使用 %-m/%-d/%Y %H:%M:%S 格式，兼容所有 macOS 语言设置。
+    实测结果（中文 macOS 15）：
+      - ISO 格式 YYYY-MM-DD HH:MM:SS → ✅ 正常
+      - M/D/YYYY 格式               → ❌ 报错
+    因此直接用 ISO 格式，在所有测试系统上均可用。
 
     Args:
         dt: datetime 对象。
 
     Returns:
-        格式化后的日期字符串，如 "6/22/2026 15:00:00"。
+        格式化后的日期字符串，如 "2026-06-22 15:00:00"。
     """
-    return dt.strftime('%-m/%-d/%Y %H:%M:%S')
+    return dt.strftime('%Y-%m-%d %H:%M:%S')
 
 
 #=============================================================
