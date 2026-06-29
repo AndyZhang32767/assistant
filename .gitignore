@@ -1,0 +1,16 @@
+__pycache__/
+.DS_Store
+*.pyc
+*.pyo
+
+# Runtime data (contains user sessions, history, denied lists)
+data/*.json
+
+# Personal schedule file
+schedule
+
+# Backup directory
+backup/
+
+# Target (previous release copy)
+target/
